@@ -36,10 +36,9 @@ type RotateStrategy struct {
 	fileName string
 	// 时区设置，默认Asia/Shanghai
 	location string
+	// 保存序列化状态的文件路径
 	// 当前文件的递增序列号，比如1,2,3,4，用于日志轮转时因为日志量过大，
 	// 同一天出现多个日志文件时加上编号进行区分
-	currentSequence int
-	// 保存序列化状态的文件路径
 	sequenceStat *os.File
 	// 当前的日志大小
 	currentSize int64
@@ -47,6 +46,8 @@ type RotateStrategy struct {
 	currentDate string
 	// 日志轮转的阈值
 	threshold int64
+	// 是否压缩历史日志文件
+	enableCompress bool
 	// 加锁保护
 	lock sync.RWMutex
 	// 文件句柄
@@ -57,7 +58,7 @@ type RotateStrategy struct {
 	once sync.Once
 }
 
-func NewRotateStrategy(filename string, threshold int64) (*RotateStrategy, error) {
+func NewRotateStrategy(filename string, threshold int64, enableCompress bool) (*RotateStrategy, error) {
 	logout, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
@@ -75,15 +76,15 @@ func NewRotateStrategy(filename string, threshold int64) (*RotateStrategy, error
 	}
 
 	return &RotateStrategy{
-		fileName:        filename,
-		sequenceStat:    sequenceStat,
-		currentSequence: 0,
-		currentDate:     time.Now().Format(Layout),
-		threshold:       threshold,
-		lock:            sync.RWMutex{},
-		logout:          logout,
-		lg:              log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds),
-		once:            sync.Once{},
+		fileName:       filename,
+		sequenceStat:   sequenceStat,
+		currentDate:    time.Now().Format(Layout),
+		threshold:      threshold,
+		enableCompress: enableCompress,
+		lock:           sync.RWMutex{},
+		logout:         logout,
+		lg:             log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds),
+		once:           sync.Once{},
 	}, nil
 }
 

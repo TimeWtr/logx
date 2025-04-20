@@ -21,6 +21,7 @@ import (
 
 func TestNewLog(t *testing.T) {
 	lg, err := NewLog(
+		"/dev/null",
 		WithColor(),
 		WithAsync(),
 		WithCallSkip(4))
