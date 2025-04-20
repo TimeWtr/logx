@@ -37,4 +37,6 @@ type Config struct {
 	period int
 	// 历史的日志文件是否开启压缩
 	enableCompress bool
+	// 压缩的级别
+	compressionLevel CompressLevel
 }

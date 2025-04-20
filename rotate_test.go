@@ -21,7 +21,7 @@ import (
 )
 
 func TestNewRotateStrategy(t *testing.T) {
-	rs, err := NewRotateStrategy("./logs/test.log", 200, false)
+	rs, err := NewRotateStrategy("./logs/test.log", 200, true, DefaultCompression)
 	assert.Nil(t, err)
 
 	for i := 0; i < 100; i++ {
@@ -32,7 +32,7 @@ func TestNewRotateStrategy(t *testing.T) {
 }
 
 func TestNewRotateStrategy_Async_Work(t *testing.T) {
-	rs, err := NewRotateStrategy("./logs/test.log", 200, false)
+	rs, err := NewRotateStrategy("./logs/test.log", 200, true, DefaultCompression)
 	assert.Nil(t, err)
 
 	go rs.AsyncWork()
@@ -52,7 +52,7 @@ func TestNewRotateStrategy_Async_Work(t *testing.T) {
 // 3. 写入数据和设置当前写入数据的大小
 // 4. 结束后调用关闭方法，停掉定时任务
 func ExampleNewRotateStrategy() {
-	rs, err := NewRotateStrategy("./logs/test.log", 200, false)
+	rs, err := NewRotateStrategy("./logs/test.log", 200, false, DefaultCompression)
 	if err != nil {
 		return
 	}

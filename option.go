@@ -85,3 +85,10 @@ func WithEnableCompress() Options {
 		l.enableCompress = true
 	}
 }
+
+// WithCompressionLevel 设置压缩的级别，如果不设置则为DefaultCompression
+func WithCompressionLevel(level CompressLevel) Options {
+	return func(l *Config) {
+		l.compressionLevel = level
+	}
+}

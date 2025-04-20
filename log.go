@@ -63,21 +63,27 @@ type Log struct {
 
 func NewLog(filePath string, opts ...Options) (Logger, error) {
 	cfg := &Config{
-		filePath:   filePath,
-		filename:   DefaultFilename,
-		level:      InfoLevel,
-		location:   DefaultLocation,
-		enableLine: true,
-		callSkip:   DefaultErrCoreSkip,
-		threshold:  DeaultLogSize,
-		period:     DefaultPeriod,
+		filePath:         filePath,
+		filename:         DefaultFilename,
+		level:            InfoLevel,
+		location:         DefaultLocation,
+		enableLine:       true,
+		callSkip:         DefaultErrCoreSkip,
+		threshold:        DeaultLogSize,
+		period:           DefaultPeriod,
+		enableCompress:   false,
+		compressionLevel: DefaultCompression,
 	}
 
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	rs, err := NewRotateStrategy(cfg.filename, cfg.threshold, cfg.enableCompress)
+	if cfg.enableCompress && cfg.compressionLevel.valid() {
+		return nil, fmt.Errorf("invalid compression level: %d", cfg.compressionLevel)
+	}
+
+	rs, err := NewRotateStrategy(cfg.filename, cfg.threshold, cfg.enableCompress, cfg.compressionLevel)
 	if err != nil {
 		return nil, err
 	}

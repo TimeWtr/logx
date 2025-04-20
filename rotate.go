@@ -16,6 +16,7 @@ package logx
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"github.com/robfig/cron/v3"
 	"io"
@@ -50,6 +51,8 @@ type RotateStrategy struct {
 	threshold int64
 	// 是否压缩历史日志文件
 	enableCompress bool
+	// 压缩级别
+	compressLevel CompressLevel
 	// 加锁保护
 	lock sync.RWMutex
 	// 文件句柄
@@ -62,7 +65,7 @@ type RotateStrategy struct {
 	cr *cron.Cron
 }
 
-func NewRotateStrategy(filename string, threshold int64, enableCompress bool) (*RotateStrategy, error) {
+func NewRotateStrategy(filename string, threshold int64, enableCompress bool, level CompressLevel) (*RotateStrategy, error) {
 	logout, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
@@ -86,6 +89,7 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool) (*
 		currentDate:    time.Now().Format(Layout),
 		threshold:      threshold,
 		enableCompress: enableCompress,
+		compressLevel:  level,
 		lock:           sync.RWMutex{},
 		logout:         logout,
 		lg:             log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds),
@@ -114,6 +118,10 @@ func (r *RotateStrategy) AsyncWork() {
 			defer r.lock.Unlock()
 
 			_ = r.logout.Close()
+			srcFileName := r.logout.Name()
+			if r.enableCompress {
+				go r.compress(srcFileName)
+			}
 
 			logout, err := os.OpenFile(fmt.Sprintf("%s/%s", r.dir, r.filename), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 			if err != nil {
@@ -170,6 +178,10 @@ func (r *RotateStrategy) Rotate() error {
 
 	if r.currentSize >= r.threshold {
 		_ = r.logout.Close()
+		srcFileName := r.logout.Name()
+		if r.enableCompress {
+			go r.compress(srcFileName)
+		}
 
 		seq, err := r.loadSequence()
 		if err != nil {
@@ -234,6 +246,66 @@ func (r *RotateStrategy) createNewFile(filename string, seq int) error {
 	atomic.StoreInt64(&r.currentSize, 0)
 
 	return r.saveSequence(seq)
+}
+
+// compress 执行压缩操作
+func (r *RotateStrategy) compress(srcFilename string) {
+	var err error
+	defer func() {
+		if err == nil {
+			_ = os.Remove(srcFilename)
+		}
+	}()
+
+	gzFile, err := os.OpenFile(fmt.Sprintf("%s.gz", srcFilename),
+		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open gzip file, filename: %s, err: %v", r.filename, err))
+		return
+	}
+	defer func() {
+		_ = gzFile.Close()
+	}()
+
+	srcFile, err := os.OpenFile(srcFilename, os.O_RDONLY, 0666)
+	if err != nil {
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open gzip file, filename: %s, err: %v", r.filename, err))
+		return
+	}
+	defer func() {
+		_ = srcFile.Close()
+	}()
+
+	gzWriter, err := gzip.NewWriterLevel(gzFile, r.compressLevel.Int())
+	if err != nil {
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open gzip file, filename: %s, err: %v", r.filename, err))
+		return
+	}
+	defer func() {
+		if err == nil {
+			_ = gzWriter.Flush()
+		}
+		_ = gzWriter.Close()
+	}()
+
+	// 每次读取1M的内容
+	buf := make([]byte, 1024*1024)
+	for {
+		n, err := srcFile.Read(buf)
+		if err != nil && err != io.EOF {
+			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to read src file to gzip file, err: %v", err))
+			return
+		}
+
+		if n == 0 {
+			break
+		}
+
+		if _, err = gzWriter.Write(buf[:n]); err != nil {
+			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to write src file to gzip file, err: %v", err))
+			return
+		}
+	}
 }
 
 // Close 关闭轮转功能
