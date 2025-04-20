@@ -20,7 +20,7 @@ type LoggerLevel uint8
 
 const (
 	// DebugLevel 用于开发环境调试的日志级别，生产环境中需要切换其他的级别
-	DebugLevel LoggerLevel = iota
+	DebugLevel LoggerLevel = iota + 1
 	// InfoLevel 默认的日志级别
 	InfoLevel
 	// WarnLevel 出现了危险的情况需要打印日志，存在危险，但不影响系统的正常运行
@@ -74,6 +74,11 @@ func (l LoggerLevel) UpperString() string {
 	default:
 		return fmt.Sprintf("unknown level(%d)", l)
 	}
+}
+
+// valid 校验是否是合法的日志级别
+func (l LoggerLevel) valid() bool {
+	return l > _maxLevel || l < _minLevel
 }
 
 // check 校验日志级别

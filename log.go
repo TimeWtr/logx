@@ -16,9 +16,8 @@ package logx
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"strings"
+	"sync"
 )
 
 type Logger interface {
@@ -37,25 +36,32 @@ type Logger interface {
 }
 
 type Log struct {
-	// 日志级别
-	level LoggerLevel
-	// 日志输出文件
-	loggerFile string
-	// 集成原生日志包
-	lg *log.Logger
+	// 配置信息
+	cfg *Config
+	// 并发保护
+	mu *sync.Mutex
+	// 轮转策略
+	rs RotateStrategy
+	// 日志加颜色输出
+	cp ColorPlugin
 }
 
-func NewLog(filePath string, level LoggerLevel) Logger {
-	logout, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("Failed to open log file: %s, err: %v\n", filePath, err))
+func NewLog(opts ...Options) (Logger, error) {
+	cfg := &Config{
+		filename: "server.log",
+		level:    InfoLevel,
+		location: "Asia/Shanghai",
 	}
 
-	return &Log{
-		level:      level,
-		loggerFile: filePath,
-		lg:         log.New(logout, "", log.Ldate|log.Lmicroseconds),
+	for _, opt := range opts {
+		opt(cfg)
 	}
+
+	l := &Log{
+		mu: new(sync.Mutex),
+	}
+
+	return l, nil
 }
 
 func (l *Log) prefix(level LoggerLevel, v ...any) string {
@@ -63,6 +69,7 @@ func (l *Log) prefix(level LoggerLevel, v ...any) string {
 	builder.WriteString("[")
 	builder.WriteString(level.UpperString())
 	builder.WriteString("] ")
+	builder.WriteString(Streamline())
 	builder.WriteString(fmt.Sprint(v...))
 	return builder.String()
 }
@@ -72,78 +79,151 @@ func (l *Log) prefixf(level LoggerLevel, format string, v ...any) string {
 	builder.WriteString("[")
 	builder.WriteString(level.UpperString())
 	builder.WriteString("] ")
+	if level.check(InfoLevel) {
+		builder.WriteString(Streamline())
+	}
 	builder.WriteString(fmt.Sprintf(format, v...))
 	return builder.String()
 }
 
 func (l *Log) Debug(v ...any) {
-	if l.level.check(DebugLevel) {
-		l.lg.Println(l.prefix(DebugLevel, v...))
+	if l.cfg.level.check(DebugLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefix(DebugLevel, v...))
 }
 
 func (l *Log) Info(v ...any) {
-	if l.level.check(InfoLevel) {
-		l.lg.Println(l.prefix(InfoLevel, v...))
+	if l.cfg.level.check(InfoLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefix(InfoLevel, v...))
 }
 
 func (l *Log) Warn(v ...any) {
-	if l.level.check(WarnLevel) {
-		l.lg.Println(l.prefix(WarnLevel, v...))
+	if l.cfg.level.check(WarnLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefix(WarnLevel, v...))
 }
 
 func (l *Log) Error(v ...any) {
-	if l.level.check(ErrorLevel) {
-		l.lg.Println(l.prefix(ErrorLevel, v...))
+	if l.cfg.level.check(ErrorLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefix(ErrorLevel, v...))
+	l.abnormalStack()
 }
 
 func (l *Log) Panic(v ...any) {
-	if l.level.check(PanicLevel) {
-		l.lg.Println(l.prefix(PanicLevel, v...))
+	if l.cfg.level.check(PanicLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefix(PanicLevel, v...))
+	l.abnormalStack()
 }
 
 func (l *Log) Fatal(v ...any) {
-	if l.level.check(FatalLevel) {
-		l.lg.Println(l.prefix(FatalLevel, v...))
+	if l.cfg.level.check(FatalLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefix(FatalLevel, v...))
+	l.abnormalStack()
 }
 
 func (l *Log) Debugf(format string, v ...any) {
-	if l.level.check(DebugLevel) {
-		l.lg.Println(l.prefixf(DebugLevel, format, v...))
+	if l.cfg.level.check(DebugLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefixf(DebugLevel, format, v...))
 }
 
 func (l *Log) Infof(format string, v ...any) {
-	if l.level.check(InfoLevel) {
-		l.lg.Println(l.prefixf(InfoLevel, format, v...))
+	if l.cfg.level.check(InfoLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefixf(InfoLevel, format, v...))
 }
 
 func (l *Log) Warnf(format string, v ...any) {
-	if l.level.check(WarnLevel) {
-		l.lg.Println(l.prefixf(WarnLevel, format, v...))
+	if l.cfg.level.check(WarnLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefixf(WarnLevel, format, v...))
 }
 
 func (l *Log) Errorf(format string, v ...any) {
-	if l.level.check(ErrorLevel) {
-		l.lg.Println(l.prefixf(ErrorLevel, format, v...))
+	if l.cfg.level.check(ErrorLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefixf(ErrorLevel, format, v...))
+	l.abnormalStack()
 }
 
 func (l *Log) Panicf(format string, v ...any) {
-	if l.level.check(PanicLevel) {
-		l.lg.Println(l.prefixf(PanicLevel, format, v...))
+	if l.cfg.level.check(PanicLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rs.lg.Println(l.prefixf(PanicLevel, format, v...))
+	l.abnormalStack()
 }
 
 func (l *Log) Fatalf(format string, v ...any) {
-	if l.level.check(FatalLevel) {
-		l.lg.Println(l.prefixf(FatalLevel, format, v...))
+	if l.cfg.level.check(FatalLevel) {
+		return
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	msg := l.prefixf(FatalLevel, format, v...)
+	l.rs.lg.Println(msg)
+	size := l.abnormalStack() + len(msg)
+	l.rs.SetCurrentSize(int64(size))
+}
+
+// abnormalStack 用于打印异常情况下的多行堆栈信息，特殊处理，Debug、Info级别不需要
+// 返回写入的数据大小
+func (l *Log) abnormalStack() int {
+	var builder strings.Builder
+	for _, s := range MultiLevel(l.cfg.callSkip) {
+		str := "\t" + s + "\n"
+		builder.WriteString(str)
+	}
+
+	res := builder.String()
+	_, _ = l.rs.logout.WriteString(res)
+	return len(res)
 }
