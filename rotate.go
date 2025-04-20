@@ -32,8 +32,10 @@ const Layout = "20060102"
 
 // RotateStrategy 日志轮转策略
 type RotateStrategy struct {
+	// 日志文件目录
+	dir string
 	// 日志文件名称
-	fileName string
+	filename string
 	// 时区设置，默认Asia/Shanghai
 	location string
 	// 保存序列化状态的文件路径
@@ -56,6 +58,8 @@ type RotateStrategy struct {
 	lg *log.Logger
 	// 单例
 	once sync.Once
+	// 定时任务
+	cr *cron.Cron
 }
 
 func NewRotateStrategy(filename string, threshold int64, enableCompress bool) (*RotateStrategy, error) {
@@ -76,7 +80,8 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool) (*
 	}
 
 	return &RotateStrategy{
-		fileName:       filename,
+		dir:            dir,
+		filename:       filepath.Base(filename),
 		sequenceStat:   sequenceStat,
 		currentDate:    time.Now().Format(Layout),
 		threshold:      threshold,
@@ -101,18 +106,18 @@ func (r *RotateStrategy) AsyncWork() {
 			return
 		}
 
-		cr := cron.New(
+		r.cr = cron.New(
 			cron.WithLocation(location),
 			cron.WithSeconds())
-		entity, err := cr.AddFunc("0 0 0 * * *", func() {
+		entity, err := r.cr.AddFunc("0 0 0 * * *", func() {
 			r.lock.Lock()
 			defer r.lock.Unlock()
 
 			_ = r.logout.Close()
 
-			logout, err := os.OpenFile(r.fileName, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+			logout, err := os.OpenFile(fmt.Sprintf("%s/%s", r.dir, r.filename), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 			if err != nil {
-				_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open filename: %s, err: %v", r.fileName, err))
+				_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open filename: %s, err: %v", r.filename, err))
 				return
 			}
 			r.logout = logout
@@ -133,20 +138,20 @@ func (r *RotateStrategy) AsyncWork() {
 		}
 
 		_, _ = os.Stdin.WriteString(fmt.Sprintf("add rotate cron job, entity: %d \n", entity))
-		cr.Start()
+		r.cr.Start()
 	})
 }
 
 // Rotate 日志轮转的实现方法，轮转逻辑如下：
 // 1. 每次写入时检查当前日期是否已经距离当前日志文件创建时相差一天，如果是则进行轮转
 // 2. 每次写入时检查当前日志文件大小是否已经达到文件的轮转阈值，如果时则进行轮转
-func (r *RotateStrategy) Rotate() {
+func (r *RotateStrategy) Rotate() error {
 	r.lock.RLock()
 	date := time.Now().Format(Layout)
 	// 快路径
 	if date == r.currentDate && r.currentSize < r.threshold {
 		r.lock.RUnlock()
-		return
+		return nil
 	}
 	r.lock.RUnlock()
 
@@ -156,10 +161,11 @@ func (r *RotateStrategy) Rotate() {
 	if date != r.currentDate {
 		_ = r.logout.Close()
 
-		if err := r.createNewFile(r.fileName, 0); err != nil {
-			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open new file, filename: %s, err: %v", r.fileName, err))
+		if err := r.createNewFile(r.filename, 0); err != nil {
+			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open new file, filename: %s, err: %v", r.filename, err))
+			return err
 		}
-		return
+		return nil
 	}
 
 	if r.currentSize >= r.threshold {
@@ -168,17 +174,19 @@ func (r *RotateStrategy) Rotate() {
 		seq, err := r.loadSequence()
 		if err != nil {
 			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to load sequence, err: %v", err))
-			return
+			return err
 		}
 		newSeq := seq + 1
 
-		fileName := fmt.Sprintf("%s.%s.%d.log", r.fileName, date, newSeq)
+		fileName := fmt.Sprintf("%s.%s.%d.log", r.filename, date, newSeq)
 		err = r.createNewFile(fileName, newSeq)
 		if err != nil {
 			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to create new file, filename: %s, err: %v", fileName, err))
-			return
+			return err
 		}
 	}
+
+	return nil
 }
 
 // 读取序列号时重置文件指针
@@ -216,7 +224,7 @@ func (r *RotateStrategy) saveSequence(seq int) error {
 }
 
 func (r *RotateStrategy) createNewFile(filename string, seq int) error {
-	logout, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	logout, err := os.OpenFile(fmt.Sprintf("%s/%s", r.dir, filename), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return err
 	}
@@ -226,4 +234,9 @@ func (r *RotateStrategy) createNewFile(filename string, seq int) error {
 	atomic.StoreInt64(&r.currentSize, 0)
 
 	return r.saveSequence(seq)
+}
+
+// Close 关闭轮转功能
+func (r *RotateStrategy) Close() {
+	r.cr.Stop()
 }

@@ -43,6 +43,13 @@ const (
 	DefaultFilename    = "server.log"
 )
 
+type WriteMode int
+
+const (
+	NormalMode WriteMode = iota
+	FormatMode
+)
+
 type Log struct {
 	// 配置信息
 	cfg *Config
@@ -74,6 +81,8 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 异步执行定时轮转
+	go rs.AsyncWork()
 
 	l := &Log{
 		cfg: cfg,
@@ -110,7 +119,7 @@ func (l *Log) Debug(v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefix(DebugLevel, v...))
+	l.normalExecf(NormalMode, DebugLevel, "", v...)
 }
 
 func (l *Log) Info(v ...any) {
@@ -120,7 +129,7 @@ func (l *Log) Info(v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefix(InfoLevel, v...))
+	l.normalExecf(NormalMode, InfoLevel, "", v...)
 }
 
 func (l *Log) Warn(v ...any) {
@@ -130,7 +139,7 @@ func (l *Log) Warn(v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefix(WarnLevel, v...))
+	l.normalExecf(NormalMode, WarnLevel, "", v...)
 }
 
 func (l *Log) Error(v ...any) {
@@ -140,8 +149,7 @@ func (l *Log) Error(v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefix(ErrorLevel, v...))
-	l.abnormalStack()
+	l.abnormalExecf(NormalMode, ErrorLevel, "", v...)
 }
 
 func (l *Log) Panic(v ...any) {
@@ -151,8 +159,7 @@ func (l *Log) Panic(v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefix(PanicLevel, v...))
-	l.abnormalStack()
+	l.abnormalExecf(NormalMode, PanicLevel, "", v...)
 }
 
 func (l *Log) Fatal(v ...any) {
@@ -162,8 +169,7 @@ func (l *Log) Fatal(v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefix(FatalLevel, v...))
-	l.abnormalStack()
+	l.abnormalExecf(NormalMode, FatalLevel, "", v...)
 }
 
 func (l *Log) Debugf(format string, v ...any) {
@@ -173,7 +179,7 @@ func (l *Log) Debugf(format string, v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefixf(DebugLevel, format, v...))
+	l.normalExecf(FormatMode, DebugLevel, format, v...)
 }
 
 func (l *Log) Infof(format string, v ...any) {
@@ -183,7 +189,7 @@ func (l *Log) Infof(format string, v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefixf(InfoLevel, format, v...))
+	l.normalExecf(FormatMode, InfoLevel, format, v...)
 }
 
 func (l *Log) Warnf(format string, v ...any) {
@@ -193,7 +199,7 @@ func (l *Log) Warnf(format string, v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefixf(WarnLevel, format, v...))
+	l.normalExecf(FormatMode, WarnLevel, format, v...)
 }
 
 func (l *Log) Errorf(format string, v ...any) {
@@ -203,8 +209,7 @@ func (l *Log) Errorf(format string, v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefixf(ErrorLevel, format, v...))
-	l.abnormalStack()
+	l.abnormalExecf(FormatMode, ErrorLevel, format, v...)
 }
 
 func (l *Log) Panicf(format string, v ...any) {
@@ -214,8 +219,7 @@ func (l *Log) Panicf(format string, v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rs.lg.Println(l.prefixf(PanicLevel, format, v...))
-	l.abnormalStack()
+	l.abnormalExecf(FormatMode, PanicLevel, format, v...)
 }
 
 func (l *Log) Fatalf(format string, v ...any) {
@@ -225,7 +229,43 @@ func (l *Log) Fatalf(format string, v ...any) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	msg := l.prefixf(FatalLevel, format, v...)
+	l.abnormalExecf(FormatMode, FatalLevel, format, v...)
+}
+
+// normalExecf 正常级别下真正执行写入的方法
+func (l *Log) normalExecf(mode WriteMode, level LoggerLevel, format string, v ...any) {
+	err := l.rs.Rotate()
+	if err != nil {
+		return
+	}
+
+	var msg string
+	switch mode {
+	case NormalMode:
+		msg = l.prefix(level, v...)
+	case FormatMode:
+		msg = l.prefixf(level, format, v...)
+	}
+
+	l.rs.lg.Println(msg)
+	l.rs.SetCurrentSize(int64(len(msg)))
+}
+
+// abnormalExecf 异常级别下真正执行写入的方法
+func (l *Log) abnormalExecf(mode WriteMode, level LoggerLevel, format string, v ...any) {
+	err := l.rs.Rotate()
+	if err != nil {
+		return
+	}
+
+	var msg string
+	switch mode {
+	case NormalMode:
+		msg = l.prefix(level, v...)
+	case FormatMode:
+		msg = l.prefixf(level, format, v...)
+	}
+
 	l.rs.lg.Println(msg)
 	size := l.abnormalStack() + len(msg)
 	l.rs.SetCurrentSize(int64(size))
