@@ -35,30 +35,51 @@ type Logger interface {
 	Fatalf(format string, v ...any)
 }
 
+const (
+	DefaultErrCoreSkip = 3
+	DeaultLogSize      = 100 * 1024 * 1024
+	DefaultPeriod      = 30
+	DefaultLocation    = "Asia/Shanghai"
+	DefaultFilename    = "server.log"
+)
+
 type Log struct {
 	// 配置信息
 	cfg *Config
 	// 并发保护
 	mu *sync.Mutex
 	// 轮转策略
-	rs RotateStrategy
+	rs *RotateStrategy
 	// 日志加颜色输出
 	cp ColorPlugin
 }
 
-func NewLog(opts ...Options) (Logger, error) {
+func NewLog(filePath string, opts ...Options) (Logger, error) {
 	cfg := &Config{
-		filename: "server.log",
-		level:    InfoLevel,
-		location: "Asia/Shanghai",
+		filePath:   filePath,
+		filename:   DefaultFilename,
+		level:      InfoLevel,
+		location:   DefaultLocation,
+		enableLine: true,
+		callSkip:   DefaultErrCoreSkip,
+		threshold:  DeaultLogSize,
+		period:     DefaultPeriod,
 	}
 
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
+	rs, err := NewRotateStrategy(cfg.filename, cfg.threshold, cfg.enableCompress)
+	if err != nil {
+		return nil, err
+	}
+
 	l := &Log{
-		mu: new(sync.Mutex),
+		cfg: cfg,
+		mu:  new(sync.Mutex),
+		rs:  rs,
+		cp:  NewANSIColorPlugin(cfg.enableColor),
 	}
 
 	return l, nil
@@ -66,9 +87,7 @@ func NewLog(opts ...Options) (Logger, error) {
 
 func (l *Log) prefix(level LoggerLevel, v ...any) string {
 	var builder strings.Builder
-	builder.WriteString("[")
-	builder.WriteString(level.UpperString())
-	builder.WriteString("] ")
+	builder.WriteString(l.cp.Format(level))
 	builder.WriteString(Streamline())
 	builder.WriteString(fmt.Sprint(v...))
 	return builder.String()
@@ -76,9 +95,7 @@ func (l *Log) prefix(level LoggerLevel, v ...any) string {
 
 func (l *Log) prefixf(level LoggerLevel, format string, v ...any) string {
 	var builder strings.Builder
-	builder.WriteString("[")
-	builder.WriteString(level.UpperString())
-	builder.WriteString("] ")
+	builder.WriteString(l.cp.Format(level))
 	if level.check(InfoLevel) {
 		builder.WriteString(Streamline())
 	}

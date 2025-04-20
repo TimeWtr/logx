@@ -38,9 +38,9 @@ func WithFileName(fileName string) Options {
 }
 
 // WithLine 开启日志打印行号
-func WithLine(line int) Options {
+func WithLine(enable bool) Options {
 	return func(l *Config) {
-		l.enableLine = true
+		l.enableLine = enable
 	}
 }
 
@@ -58,8 +58,30 @@ func WithAsync() Options {
 	}
 }
 
+// WithLocation 设置时区，默认是Asia/Shanghai
 func WithLocation(location string) Options {
 	return func(l *Config) {
 		l.location = location
+	}
+}
+
+// WithThreshold 设置单个文件的大小，单位为MB，默认为100MB
+func WithThreshold(threshold int64) Options {
+	return func(l *Config) {
+		l.threshold = threshold
+	}
+}
+
+// WithPeriod 设置日志文件的保存周期，默认周期30天
+func WithPeriod(period int) Options {
+	return func(l *Config) {
+		l.period = period
+	}
+}
+
+// WithEnableCompress 开启历史日志文件压缩
+func WithEnableCompress() Options {
+	return func(l *Config) {
+		l.enableCompress = true
 	}
 }
