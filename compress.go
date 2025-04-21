@@ -19,6 +19,7 @@ import "compress/gzip"
 type CompressLevel int
 
 const (
+	NoCompression      CompressLevel = gzip.NoCompression
 	BestSpeed          CompressLevel = gzip.BestSpeed
 	BestCompression                  = gzip.BestCompression
 	DefaultCompression               = gzip.DefaultCompression
