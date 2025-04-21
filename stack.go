@@ -15,49 +15,220 @@
 package logx
 
 import (
-	"fmt"
-	"os"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
-const parts = 4
+const (
+	DefaultParts = 4
+	DefaultSkip  = 2
+)
 
-// captureStack 捕获日志记录时文件调用的基本信息：程序文件、所在行数
-func captureStack(skip int) string {
-	_, file, line, ok := runtime.Caller(skip)
-	if !ok {
-		return ""
+type CallWrapOptions func(*CallEntityWrap)
+
+func WithPC() CallWrapOptions {
+	return func(w *CallEntityWrap) {
+		w.enablePC.Store(true)
 	}
-
-	return fmt.Sprintf("%s line:%d", file, line)
 }
 
-// Streamline 对捕获到的文件路径进行精简，只取最后四个部分的路径进行拼接返回，不取完整路径。
-func Streamline() string {
-	const skips = 2
-	msg := captureStack(skips)
-	sli := strings.Split(msg, string(os.PathSeparator))
-	if len(sli) < parts {
-		return msg
+func WithSkip(skip int32) CallWrapOptions {
+	return func(w *CallEntityWrap) {
+		w.skip.Store(skip)
 	}
-
-	return strings.Join(sli[len(sli)-parts:], string(os.PathSeparator))
 }
 
-// MultiLevel 当出现异常情况时，比如发现错误，捕获4级调用关系
-func MultiLevel(skips int) []string {
-	sli := make([]string, 0, skips)
-	for skip := 3; skip < skips; skip++ {
-		msg := captureStack(skip)
-		partSli := strings.Split(msg, string(os.PathSeparator))
-		if len(partSli) < parts {
-			sli = append(sli, msg)
-			continue
+func WithParts(parts int32) CallWrapOptions {
+	return func(w *CallEntityWrap) {
+		w.parts.Store(parts)
+	}
+}
+
+// funcNameCache 全局的方法与PC映射关系缓存，可以显著提高性能
+// 正常情况下方法的PC是不会变化的，动态插件例外。
+var funcNameCache sync.Map
+
+// callerEntityPool 堆栈实体对象池，减少每次调用堆栈时的对象创建开销和GC开销
+var callerEntityPool = sync.Pool{
+	New: func() interface{} {
+		return &CallerEntity{
+			file: "unknown",
+			line: -1,
+		}
+	},
+}
+
+type CallEntityWrap struct {
+	// 是否启用函数方法打印
+	enablePC atomic.Bool
+	// 堆栈信息的级别，打印几级
+	skip atomic.Int32
+	// 文件路径打印几部分
+	parts atomic.Int32
+}
+
+func newCallEntityWrap(opts ...CallWrapOptions) *CallEntityWrap {
+	cew := &CallEntityWrap{}
+	cew.enablePC.Store(false)
+	cew.skip.Store(DefaultSkip)
+	cew.parts.Store(DefaultParts)
+
+	for _, opt := range opts {
+		opt(cew)
+	}
+
+	return cew
+}
+
+// Fullname 获取条完整的格式化堆栈信息，用于DebugLevel、InfoLevel和WarnLevel
+// 单条的堆栈信息不需要指定级别，固定是2.
+func (cw *CallEntityWrap) Fullname() string {
+	const skip = 2
+	ce := newCallerEntity()
+	defer ce.release()
+
+	ce.caller(skip)
+	if cw.enablePC.Load() {
+		return ce.fullstrWithFunc()
+	}
+
+	return ce.fullstr()
+}
+
+// Fullnames 获取多条完整的格式化堆栈信息，用于ErrorLevel、PanicLevel和FatalLevel
+// 多条的堆栈信息必须指定打印的指定级别，需要更多的还原错误异常现场，默认是打印3级别
+func (cw *CallEntityWrap) Fullnames() []string {
+	ce := newCallerEntity()
+	defer ce.release()
+
+	cs, n := ce.callers(int(cw.skip.Load()))
+	var res []string
+	for i := 0; i < n; i++ {
+		pc := cs[i]
+		file, line, ok := ce.information(pc)
+		if !ok {
+			return nil
 		}
 
-		sli = append(sli, strings.Join(partSli[len(partSli)-parts:], string(os.PathSeparator)))
+		ce.ok, ce.pc, ce.file, ce.line = ok, pc, file, line
+		if cw.enablePC.Load() {
+			res = append(res, ce.fullstr())
+		} else {
+			res = append(res, ce.fullstrWithFunc())
+		}
+		ce.release()
 	}
 
-	return sli
+	return res
+}
+
+// CallerEntity 堆栈调用实体
+type CallerEntity struct {
+	// 指向调用的下一级函数
+	pc uintptr
+	// 调用发生的源文件
+	file string
+	// 调用发生的源文件行号
+	line int
+	// 是否成功获取调用的堆栈信息
+	ok bool
+	// 加锁保护
+	lock sync.Mutex
+}
+
+func newCallerEntity() *CallerEntity {
+	return callerEntityPool.Get().(*CallerEntity)
+}
+
+// release 释放对象
+func (c *CallerEntity) release() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.pc, c.file, c.line, c.ok = 0, "", 0, false
+	callerEntityPool.Put(c)
+}
+
+// fname 指针指向的方法名称
+// 预先从缓存中加载PC与名称，如果查询不到再解析名称，并缓存映射关系
+func (c *CallerEntity) fname() string {
+	if !c.ok {
+		return "UNKNOWN"
+	}
+
+	fn, ok := funcNameCache.Load(c.pc)
+	if ok {
+		return fn.(string)
+	}
+
+	fn = runtime.FuncForPC(c.pc).Name()
+	fnSli := strings.Split(fn.(string), ".")
+	if len(fnSli) == 0 {
+		return "UNKNOWN"
+	}
+	name := fnSli[len(fnSli)-1]
+	funcNameCache.Store(c.pc, name)
+
+	return name
+}
+
+// caller 捕获堆栈信息
+func (c *CallerEntity) caller(skip int) {
+	pc, file, line, ok := runtime.Caller(skip)
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.ok, c.pc, c.file, c.line = ok, pc, file, line
+}
+
+// fullstr 返回完整的字符串格式数据，不包括方法名
+func (c *CallerEntity) fullstr() string {
+	if !c.ok {
+		return "UNKNOWN"
+	}
+
+	var builder strings.Builder
+	builder.WriteString(c.file)
+	builder.WriteString(" line:")
+	builder.WriteString(strconv.Itoa(c.line))
+
+	return builder.String()
+}
+
+// fullstrWithFunc 返回完整的字符串格式数据，不包括方法名
+func (c *CallerEntity) fullstrWithFunc() string {
+	if !c.ok {
+		return "UNKNOWN"
+	}
+
+	var builder strings.Builder
+	builder.WriteString(c.file)
+	builder.WriteString(" line:")
+	builder.WriteString(strconv.Itoa(c.line))
+	builder.WriteString(" func:")
+	builder.WriteString(c.fname())
+
+	return builder.String()
+}
+
+// callers 捕获多级的堆栈信息
+func (c *CallerEntity) callers(skips int) ([]uintptr, int) {
+	pcs := make([]uintptr, skips)
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return pcs, runtime.Callers(skips, pcs)
+}
+
+// information 根据pc获取详细堆栈信息
+func (c *CallerEntity) information(pc uintptr) (file string, line int, ok bool) {
+	fn := runtime.FuncForPC(pc)
+	if fn == nil {
+		return "UNKNOWN", 0, false
+	}
+
+	file, line = fn.FileLine(pc)
+	return file, line, true
 }

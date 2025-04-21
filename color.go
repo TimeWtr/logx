@@ -28,25 +28,22 @@ const (
 type Color uint8
 
 func (c Color) String(s string) string {
-	return fmt.Sprintf("\x1b[1;%dm[%s]\x1b[0m", uint8(c), s)
+	return fmt.Sprintf("\x1b[1;%dm[%s] \x1b[0m", uint8(c), s)
 }
 
 // ColorPlugin 日志颜色插件
 type ColorPlugin interface {
-	Format(level LoggerLevel) string
+	Format(enabled bool, level LoggerLevel) string
 }
 
-type ANSIColorPlugin struct {
-	// 是否开启颜色输出
-	enabled bool
+type ANSIColorPlugin struct{}
+
+func NewANSIColorPlugin() ColorPlugin {
+	return &ANSIColorPlugin{}
 }
 
-func NewANSIColorPlugin(enabled bool) ColorPlugin {
-	return &ANSIColorPlugin{enabled: enabled}
-}
-
-func (p *ANSIColorPlugin) Format(level LoggerLevel) string {
-	if p.enabled {
+func (p *ANSIColorPlugin) Format(enabled bool, level LoggerLevel) string {
+	if enabled {
 		switch level {
 		case DebugLevel:
 			return DebugColor.String(level.UpperString())
@@ -64,5 +61,5 @@ func (p *ANSIColorPlugin) Format(level LoggerLevel) string {
 		}
 	}
 
-	return fmt.Sprintf("[" + level.UpperString() + "]")
+	return fmt.Sprintf("[" + level.UpperString() + "] ")
 }
