@@ -34,8 +34,10 @@ const Layout = "20060102"
 
 // RotateStrategy 日志轮转策略
 type RotateStrategy struct {
-	// 日志文件目录
-	dir string
+	// 日志文件基础目录
+	baseDir string
+	// 真实目录
+	realDir string
 	// 日志文件名称
 	filename string
 	// 时区设置，默认Asia/Shanghai
@@ -54,6 +56,8 @@ type RotateStrategy struct {
 	enableCompress bool
 	// 压缩级别
 	compressLevel CompressLevel
+	// 日志保存的周期，单位为天
+	period int
 	// 加锁保护
 	lock sync.RWMutex
 	// 文件句柄
@@ -62,13 +66,14 @@ type RotateStrategy struct {
 	lg *log.Logger
 	// 单例
 	once sync.Once
-	// 定时任务
+	// 创建目录和异步轮转的定时任务
 	cr *cron.Cron
+	// 清除过期文件和目录的定时任务
+	cleanCr *cron.Cron
 }
 
-func NewRotateStrategy(filename string, threshold int64, enableCompress bool, level CompressLevel) (*RotateStrategy, error) {
-	dir := filepath.Dir(filename)
-	sequenceStat, err := os.OpenFile(fmt.Sprintf("%s/sequence.stat", dir),
+func NewRotateStrategy(cfg *Config) (*RotateStrategy, error) {
+	sequenceStat, err := os.OpenFile(fmt.Sprintf("%s/sequence.stat", cfg.filePath),
 		os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
@@ -80,17 +85,27 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool, le
 		}
 	}()
 
+	currentDate := time.Now().Format(Layout)
 	rs := &RotateStrategy{
-		dir:            dir,
-		filename:       filepath.Base(filename),
-		currentDate:    time.Now().Format(Layout),
-		threshold:      threshold,
+		baseDir:        cfg.filePath,
+		realDir:        filepath.Join(cfg.filePath, currentDate),
+		filename:       filepath.Base(cfg.filename),
+		currentDate:    currentDate,
+		threshold:      cfg.threshold,
 		sequenceStat:   sequenceStat,
-		enableCompress: enableCompress,
-		compressLevel:  level,
+		enableCompress: cfg.enableCompress,
+		compressLevel:  cfg.compressionLevel,
+		period:         cfg.period,
 		lock:           sync.RWMutex{},
 		lg:             log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds),
 		once:           sync.Once{},
+	}
+
+	rs.cr = rs.initCron()
+	rs.cleanCr = rs.initCron()
+
+	if err = rs.mkdir(); err != nil {
+		return nil, err
 	}
 
 	seq, err := rs.loadSequence()
@@ -104,10 +119,10 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool, le
 		if err = rs.saveSequence(0); err != nil {
 			return nil, err
 		}
-		fname = fmt.Sprintf("%s.%s", filename, time.Now().Format(Layout))
+		fname = fmt.Sprintf("%s/%s.%s", rs.realDir, rs.filename, time.Now().Format(Layout))
 	} else {
 		// 重新启动，已存在
-		fname = fmt.Sprintf("%s/%s.%s.%d.log", rs.dir, rs.filename, time.Now().Format(Layout), seq)
+		fname = fmt.Sprintf("%s/%s.%s.%d.log", rs.realDir, rs.filename, time.Now().Format(Layout), seq)
 	}
 	logout, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -130,58 +145,131 @@ func (r *RotateStrategy) SetCurrentSize(size int64) {
 
 // AsyncWork 开启一个异步的定时任务，每天凌晨24点准时进行日志轮转，定时任务精确到秒，生成新一天的日志文件
 func (r *RotateStrategy) AsyncWork() {
-	r.once.Do(func() {
-		location, err := time.LoadLocation(r.location)
-		if err != nil {
-			_, _ = os.Stderr.WriteString("load location fail:" + err.Error())
+	location, err := time.LoadLocation(r.location)
+	if err != nil {
+		_, _ = os.Stderr.WriteString("load location fail:" + err.Error())
+		return
+	}
+
+	r.cr = cron.New(
+		cron.WithLocation(location),
+		cron.WithSeconds())
+	entity, err := r.cr.AddFunc("0 0 0 * * *", func() {
+		r.lock.Lock()
+		defer r.lock.Unlock()
+
+		// 定时任务创建当天的日志目录
+		r.realDir = filepath.Join(r.baseDir, time.Now().Format(Layout))
+		if err = r.mkdir(); err != nil {
 			return
 		}
 
-		r.cr = cron.New(
-			cron.WithLocation(location),
-			cron.WithSeconds())
-		entity, err := r.cr.AddFunc("0 0 0 * * *", func() {
-			r.lock.Lock()
-			defer r.lock.Unlock()
+		_ = r.logout.Close()
+		srcFileName := r.logout.Name()
+		if r.enableCompress {
+			var eg errgroup.Group
+			eg.Go(func() error {
+				return r.compress(srcFileName)
+			})
+			if err := eg.Wait(); err == nil {
+				_ = os.Remove(srcFileName)
+			}
+		}
 
-			_ = r.logout.Close()
-			srcFileName := r.logout.Name()
-			if r.enableCompress {
-				var eg errgroup.Group
-				eg.Go(func() error {
-					return r.compress(srcFileName)
-				})
-				if err := eg.Wait(); err == nil {
-					_ = os.Remove(srcFileName)
+		logout, err := os.OpenFile(fmt.Sprintf("%s/%s.%s", r.realDir, r.filename, time.Now().Format(Layout)),
+			os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open filename: %s, err: %v", r.filename, err))
+			return
+		}
+		r.logout = logout
+		r.lg = log.New(logout, "", log.Ldate|log.Lmicroseconds)
+		r.currentDate = time.Now().Format(Layout)
+		atomic.StoreInt64(&r.currentSize, 0)
+
+		_, err = r.sequenceStat.WriteString("0")
+		if err != nil {
+			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to set sequence stat, err: %v", err))
+			return
+		}
+	})
+
+	if err != nil {
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to add rotate cron job, err: %v", err))
+		return
+	}
+
+	_, _ = os.Stdin.WriteString(fmt.Sprintf("add rotate cron job, entity: %d \n", entity))
+	r.cr.Start()
+}
+
+func (r *RotateStrategy) initCron() *cron.Cron {
+	location, err := time.LoadLocation(r.location)
+	if err != nil {
+		_, _ = os.Stderr.WriteString("load location fail:" + err.Error())
+		return nil
+	}
+
+	return cron.New(cron.WithLocation(location), cron.WithSeconds())
+}
+
+// AsyncCleanWork 异步定时任务，执行清除过期日志的功能
+// 每天凌晨1点定时执行异步清除任务
+func (r *RotateStrategy) AsyncCleanWork() {
+	et, err := r.cleanCr.AddFunc("0 0 1 * * *", func() {
+		startTime := time.Now().AddDate(0, 0, -r.period)
+		entrys, err := os.ReadDir(r.baseDir)
+		if err != nil {
+			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to read dir: %s, err: %v", r.baseDir, err))
+			return
+		}
+
+		for _, entry := range entrys {
+			if !entry.IsDir() {
+				continue
+			}
+
+			info, err := entry.Info()
+			if err != nil {
+				_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to read dir: %s, err: %v", r.baseDir, err))
+				continue
+			}
+
+			tt, err := time.Parse(Layout, info.Name())
+			if err != nil {
+				_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to parse dir name: %s, err: %v", r.baseDir, err))
+				continue
+			}
+
+			if tt.Before(startTime) {
+				dir := filepath.Join(r.baseDir, info.Name())
+				subEntrys, err := os.ReadDir(dir)
+				if err != nil {
+					_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to read sub dir: %s, err: %v", r.baseDir, err))
+					continue
+				}
+				for _, se := range subEntrys {
+					f := filepath.Join(dir, se.Name())
+					if err = os.Remove(f); err != nil {
+						_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to remove file: %s, err: %v", r.baseDir, err))
+						continue
+					}
+				}
+
+				if err = os.Remove(dir); err != nil {
+					_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to remove dir: %s, err: %v", dir, err))
 				}
 			}
-
-			logout, err := os.OpenFile(fmt.Sprintf("%s/%s.%s", r.dir, r.filename, time.Now().Format(Layout)),
-				os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
-			if err != nil {
-				_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open filename: %s, err: %v", r.filename, err))
-				return
-			}
-			r.logout = logout
-			r.lg = log.New(logout, "", log.Ldate|log.Lmicroseconds)
-			r.currentDate = time.Now().Format(Layout)
-			atomic.StoreInt64(&r.currentSize, 0)
-
-			_, err = r.sequenceStat.WriteString("0")
-			if err != nil {
-				_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to set sequence stat, err: %v", err))
-				return
-			}
-		})
-
-		if err != nil {
-			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to add rotate cron job, err: %v", err))
-			return
 		}
-
-		_, _ = os.Stdin.WriteString(fmt.Sprintf("add rotate cron job, entity: %d \n", entity))
-		r.cr.Start()
 	})
+
+	if err != nil {
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to add rotate cron job, err: %v", err))
+		return
+	}
+
+	_, _ = os.Stdin.WriteString(fmt.Sprintf("add rotate cron job, entity: %d \n", et))
+	r.cleanCr.Start()
 }
 
 // Rotate 日志轮转的实现方法，轮转逻辑如下：
@@ -289,7 +377,7 @@ func (r *RotateStrategy) saveSequence(seq int) error {
 }
 
 func (r *RotateStrategy) createNewFile(filename string, seq int) error {
-	logout, err := os.OpenFile(fmt.Sprintf("%s/%s", r.dir, filename), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	logout, err := os.OpenFile(fmt.Sprintf("%s/%s", r.realDir, filename), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return err
 	}
@@ -352,9 +440,20 @@ func (r *RotateStrategy) compress(srcFilename string) error {
 	return gzWriter.Flush()
 }
 
+// mkdir 创建目录
+func (r *RotateStrategy) mkdir() error {
+	err := os.MkdirAll(r.realDir, 0777)
+	if err != nil {
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to mkdir, dir: %s, err: %v", r.realDir, err))
+	}
+
+	return err
+}
+
 // Close 关闭轮转功能
 func (r *RotateStrategy) Close() {
 	r.cr.Stop()
+	r.cleanCr.Stop()
 	_ = r.logout.Close()
 	_ = r.sequenceStat.Close()
 }
