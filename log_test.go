@@ -15,16 +15,32 @@
 package logx
 
 import (
+	"errors"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
+
+func f(lg Logger) {
+	sf(lg)
+}
+
+func sf(lg Logger) {
+	for i := 0; i < 10000; i++ {
+		lg.Info("hello world")
+		lg.Debugf("hello world")
+		lg.Warn("hello world")
+		lg.Error("test error, err is: ", errors.New("this is a test error"))
+	}
+}
 
 func TestNewLog(t *testing.T) {
 	lg, err := NewLog(
 		"./logs",
 		WithColor(),
 		WithAsync(),
-		WithCallSkip(4))
+		WithThreshold(1024*100),
+		WithCallSkip(3))
 	assert.NoError(t, err)
 	assert.NotNil(t, lg)
+	f(lg)
 }

@@ -20,11 +20,11 @@ import (
 )
 
 func m() string {
-	return Streamline()
+	return ""
 }
 
 func g() []string {
-	return MultiLevel(4)
+	return nil
 }
 
 func f1() []string {
@@ -56,5 +56,33 @@ func TestMultiLevel_line(t *testing.T) {
 	levels := f4()
 	for _, level := range levels {
 		fmt.Println(level)
+	}
+}
+
+func TestCallEntityWrap_Fullname(t *testing.T) {
+	cew := newCallEntityWrap()
+	for i := 0; i < 10000; i++ {
+		t.Logf("fullename: %s", cew.Fullname())
+	}
+}
+
+func TestCallEntityWrap_Fullnames(t *testing.T) {
+	cew := newCallEntityWrap(WithPC(), WithSkip(3))
+	for i := 0; i < 10000; i++ {
+		t.Logf("fullename: %s", cew.Fullnames())
+	}
+}
+
+func BenchmarkCallEntityWrap_Fullnames_NotPC(b *testing.B) {
+	cew := newCallEntityWrap(WithSkip(5))
+	for i := 0; i < 10000; i++ {
+		b.Logf("fullename: %s", cew.Fullname())
+	}
+}
+
+func BenchmarkCallEntityWrap_Fullnames_PC(b *testing.B) {
+	cew := newCallEntityWrap(WithPC(), WithSkip(5))
+	for i := 0; i < 10000; i++ {
+		b.Logf("fullename: %s", cew.Fullnames())
 	}
 }

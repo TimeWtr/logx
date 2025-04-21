@@ -59,13 +59,11 @@ type RotateStrategy struct {
 	// 日志保存的周期，单位为天
 	period int
 	// 加锁保护
-	lock sync.RWMutex
+	lock *sync.Mutex
 	// 文件句柄
 	logout *os.File
 	// 原生日志
 	lg *log.Logger
-	// 单例
-	once sync.Once
 	// 创建目录和异步轮转的定时任务
 	cr *cron.Cron
 	// 清除过期文件和目录的定时任务
@@ -96,9 +94,8 @@ func NewRotateStrategy(cfg *Config) (*RotateStrategy, error) {
 		enableCompress: cfg.enableCompress,
 		compressLevel:  cfg.compressionLevel,
 		period:         cfg.period,
-		lock:           sync.RWMutex{},
+		lock:           new(sync.Mutex),
 		lg:             log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds),
-		once:           sync.Once{},
 	}
 
 	rs.cr = rs.initCron()
@@ -122,7 +119,7 @@ func NewRotateStrategy(cfg *Config) (*RotateStrategy, error) {
 		fname = fmt.Sprintf("%s/%s.%s", rs.realDir, rs.filename, time.Now().Format(Layout))
 	} else {
 		// 重新启动，已存在
-		fname = fmt.Sprintf("%s/%s.%s.%d.log", rs.realDir, rs.filename, time.Now().Format(Layout), seq)
+		fname = fmt.Sprintf("%s/%s.%s.%d", rs.realDir, rs.filename, time.Now().Format(Layout), seq)
 	}
 	logout, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -136,6 +133,10 @@ func NewRotateStrategy(cfg *Config) (*RotateStrategy, error) {
 		return nil, err
 	}
 
+	// 开启定时任务
+	rs.asyncWork()
+	rs.asyncCleanWork()
+
 	return rs, nil
 }
 
@@ -143,8 +144,8 @@ func (r *RotateStrategy) SetCurrentSize(size int64) {
 	atomic.AddInt64(&r.currentSize, size)
 }
 
-// AsyncWork 开启一个异步的定时任务，每天凌晨24点准时进行日志轮转，定时任务精确到秒，生成新一天的日志文件
-func (r *RotateStrategy) AsyncWork() {
+// asyncWork 开启一个异步的定时任务，每天凌晨24点准时进行日志轮转，定时任务精确到秒，生成新一天的日志文件
+func (r *RotateStrategy) asyncWork() {
 	location, err := time.LoadLocation(r.location)
 	if err != nil {
 		_, _ = os.Stderr.WriteString("load location fail:" + err.Error())
@@ -213,9 +214,9 @@ func (r *RotateStrategy) initCron() *cron.Cron {
 	return cron.New(cron.WithLocation(location), cron.WithSeconds())
 }
 
-// AsyncCleanWork 异步定时任务，执行清除过期日志的功能
+// asyncCleanWork 异步定时任务，执行清除过期日志的功能
 // 每天凌晨1点定时执行异步清除任务
-func (r *RotateStrategy) AsyncCleanWork() {
+func (r *RotateStrategy) asyncCleanWork() {
 	et, err := r.cleanCr.AddFunc("0 0 1 * * *", func() {
 		startTime := time.Now().AddDate(0, 0, -r.period)
 		entrys, err := os.ReadDir(r.baseDir)
@@ -276,17 +277,14 @@ func (r *RotateStrategy) AsyncCleanWork() {
 // 1. 每次写入时检查当前日期是否已经距离当前日志文件创建时相差一天，如果是则进行轮转
 // 2. 每次写入时检查当前日志文件大小是否已经达到文件的轮转阈值，如果时则进行轮转
 func (r *RotateStrategy) Rotate() error {
-	r.lock.RLock()
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
 	date := time.Now().Format(Layout)
 	// 快路径
 	if date == r.currentDate && r.currentSize < r.threshold {
-		r.lock.RUnlock()
 		return nil
 	}
-	r.lock.RUnlock()
-
-	r.lock.Lock()
-	defer r.lock.Unlock()
 	srcFileName := r.logout.Name()
 
 	if date != r.currentDate {
@@ -301,7 +299,7 @@ func (r *RotateStrategy) Rotate() error {
 			}
 		}
 
-		if err := r.createNewFile(r.filename, 0); err != nil {
+		if err := r.createNewFile(fmt.Sprintf("%s/%s.%s", r.realDir, r.filename, time.Now().Format(Layout)), 0); err != nil {
 			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open new file, filename: %s, err: %v", r.filename, err))
 			return err
 		}
@@ -327,7 +325,7 @@ func (r *RotateStrategy) Rotate() error {
 		}
 		newSeq := seq + 1
 
-		fileName := fmt.Sprintf("%s.%s.%d.log", r.filename, date, newSeq)
+		fileName := fmt.Sprintf("%s.%s.%d", r.filename, date, newSeq)
 		err = r.createNewFile(fileName, newSeq)
 		if err != nil {
 			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to create new file, filename: %s, err: %v", fileName, err))

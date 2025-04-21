@@ -28,3 +28,4 @@ go.work.sum
 *.log
 sequence.stat
 logs/
+.DS_Store

@@ -62,6 +62,10 @@ type Log struct {
 }
 
 func NewLog(filePath string, opts ...Options) (Logger, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path can't be empty")
+	}
+
 	cfg := &Config{
 		filePath:         filePath,
 		filename:         DefaultFilename,
@@ -87,39 +91,37 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 异步执行定时轮转
-	go rs.AsyncWork()
 
 	l := &Log{
 		cfg: cfg,
 		mu:  new(sync.Mutex),
 		rs:  rs,
-		cp:  NewANSIColorPlugin(cfg.enableColor),
+		cp:  NewANSIColorPlugin(),
 	}
 
 	return l, nil
 }
 
-func (l *Log) prefix(level LoggerLevel, v ...any) string {
+func (l *Log) prefix(enabled bool, level LoggerLevel, v ...any) string {
 	var builder strings.Builder
-	builder.WriteString(l.cp.Format(level))
-	builder.WriteString(Streamline())
+	builder.WriteString(l.cp.Format(enabled, level))
+	//builder.WriteString(Streamline() + "\t")
 	builder.WriteString(fmt.Sprint(v...))
 	return builder.String()
 }
 
-func (l *Log) prefixf(level LoggerLevel, format string, v ...any) string {
+func (l *Log) prefixf(enabled bool, level LoggerLevel, format string, v ...any) string {
 	var builder strings.Builder
-	builder.WriteString(l.cp.Format(level))
-	if level.check(InfoLevel) {
-		builder.WriteString(Streamline())
+	builder.WriteString(l.cp.Format(enabled, level))
+	if level.prohibit(InfoLevel) {
+		//builder.WriteString(Streamline() + "\t")
 	}
 	builder.WriteString(fmt.Sprintf(format, v...))
 	return builder.String()
 }
 
 func (l *Log) Debug(v ...any) {
-	if l.cfg.level.check(DebugLevel) {
+	if l.cfg.level.prohibit(DebugLevel) {
 		return
 	}
 
@@ -129,7 +131,7 @@ func (l *Log) Debug(v ...any) {
 }
 
 func (l *Log) Info(v ...any) {
-	if l.cfg.level.check(InfoLevel) {
+	if l.cfg.level.prohibit(InfoLevel) {
 		return
 	}
 
@@ -139,7 +141,7 @@ func (l *Log) Info(v ...any) {
 }
 
 func (l *Log) Warn(v ...any) {
-	if l.cfg.level.check(WarnLevel) {
+	if l.cfg.level.prohibit(WarnLevel) {
 		return
 	}
 
@@ -149,7 +151,7 @@ func (l *Log) Warn(v ...any) {
 }
 
 func (l *Log) Error(v ...any) {
-	if l.cfg.level.check(ErrorLevel) {
+	if l.cfg.level.prohibit(ErrorLevel) {
 		return
 	}
 
@@ -159,7 +161,7 @@ func (l *Log) Error(v ...any) {
 }
 
 func (l *Log) Panic(v ...any) {
-	if l.cfg.level.check(PanicLevel) {
+	if l.cfg.level.prohibit(PanicLevel) {
 		return
 	}
 
@@ -169,7 +171,7 @@ func (l *Log) Panic(v ...any) {
 }
 
 func (l *Log) Fatal(v ...any) {
-	if l.cfg.level.check(FatalLevel) {
+	if l.cfg.level.prohibit(FatalLevel) {
 		return
 	}
 
@@ -179,7 +181,7 @@ func (l *Log) Fatal(v ...any) {
 }
 
 func (l *Log) Debugf(format string, v ...any) {
-	if l.cfg.level.check(DebugLevel) {
+	if l.cfg.level.prohibit(DebugLevel) {
 		return
 	}
 
@@ -189,7 +191,7 @@ func (l *Log) Debugf(format string, v ...any) {
 }
 
 func (l *Log) Infof(format string, v ...any) {
-	if l.cfg.level.check(InfoLevel) {
+	if l.cfg.level.prohibit(InfoLevel) {
 		return
 	}
 
@@ -199,7 +201,7 @@ func (l *Log) Infof(format string, v ...any) {
 }
 
 func (l *Log) Warnf(format string, v ...any) {
-	if l.cfg.level.check(WarnLevel) {
+	if l.cfg.level.prohibit(WarnLevel) {
 		return
 	}
 
@@ -209,7 +211,7 @@ func (l *Log) Warnf(format string, v ...any) {
 }
 
 func (l *Log) Errorf(format string, v ...any) {
-	if l.cfg.level.check(ErrorLevel) {
+	if l.cfg.level.prohibit(ErrorLevel) {
 		return
 	}
 
@@ -219,7 +221,7 @@ func (l *Log) Errorf(format string, v ...any) {
 }
 
 func (l *Log) Panicf(format string, v ...any) {
-	if l.cfg.level.check(PanicLevel) {
+	if l.cfg.level.prohibit(PanicLevel) {
 		return
 	}
 
@@ -229,7 +231,7 @@ func (l *Log) Panicf(format string, v ...any) {
 }
 
 func (l *Log) Fatalf(format string, v ...any) {
-	if l.cfg.level.check(FatalLevel) {
+	if l.cfg.level.prohibit(FatalLevel) {
 		return
 	}
 
@@ -248,9 +250,9 @@ func (l *Log) normalExecf(mode WriteMode, level LoggerLevel, format string, v ..
 	var msg string
 	switch mode {
 	case NormalMode:
-		msg = l.prefix(level, v...)
+		msg = l.prefix(false, level, v...)
 	case FormatMode:
-		msg = l.prefixf(level, format, v...)
+		msg = l.prefixf(false, level, format, v...)
 	}
 
 	l.rs.lg.Println(msg)
@@ -267,12 +269,12 @@ func (l *Log) abnormalExecf(mode WriteMode, level LoggerLevel, format string, v 
 	var msg string
 	switch mode {
 	case NormalMode:
-		msg = l.prefix(level, v...)
+		msg = l.prefix(true, level, v...)
 	case FormatMode:
-		msg = l.prefixf(level, format, v...)
+		msg = l.prefixf(false, level, format, v...)
 	}
 
-	l.rs.lg.Println(msg)
+	l.rs.lg.Print(msg)
 	size := l.abnormalStack() + len(msg)
 	l.rs.SetCurrentSize(int64(size))
 }
@@ -281,10 +283,10 @@ func (l *Log) abnormalExecf(mode WriteMode, level LoggerLevel, format string, v 
 // 返回写入的数据大小
 func (l *Log) abnormalStack() int {
 	var builder strings.Builder
-	for _, s := range MultiLevel(l.cfg.callSkip) {
-		str := "\t" + s + "\n"
-		builder.WriteString(str)
-	}
+	//for _, s := range MultiLevel(l.cfg.callSkip) {
+	//	str := "\t" + s + "\n"
+	//	builder.WriteString(str)
+	//}
 
 	res := builder.String()
 	_, _ = l.rs.logout.WriteString(res)
