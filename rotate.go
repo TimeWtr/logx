@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"github.com/robfig/cron/v3"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"log"
 	"os"
@@ -66,11 +67,6 @@ type RotateStrategy struct {
 }
 
 func NewRotateStrategy(filename string, threshold int64, enableCompress bool, level CompressLevel) (*RotateStrategy, error) {
-	logout, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		return nil, err
-	}
-
 	dir := filepath.Dir(filename)
 	sequenceStat, err := os.OpenFile(fmt.Sprintf("%s/sequence.stat", dir),
 		os.O_RDWR|os.O_CREATE, 0666)
@@ -78,23 +74,51 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool, le
 		return nil, err
 	}
 
-	if stat, _ := sequenceStat.Stat(); stat.Size() == 0 {
-		_, err = sequenceStat.WriteString("0")
-	}
-
-	return &RotateStrategy{
+	rs := &RotateStrategy{
 		dir:            dir,
 		filename:       filepath.Base(filename),
-		sequenceStat:   sequenceStat,
 		currentDate:    time.Now().Format(Layout),
 		threshold:      threshold,
+		sequenceStat:   sequenceStat,
 		enableCompress: enableCompress,
 		compressLevel:  level,
 		lock:           sync.RWMutex{},
-		logout:         logout,
 		lg:             log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds),
 		once:           sync.Once{},
-	}, nil
+	}
+
+	seq, err := rs.loadSequence()
+	if err != nil {
+		_ = sequenceStat.Close()
+		return nil, err
+	}
+
+	var fname string
+	if seq == 0 {
+		// 初次初始化
+		if err = rs.saveSequence(0); err != nil {
+			_ = sequenceStat.Close()
+			return nil, err
+		}
+		fname = filename
+	} else {
+		// 重新启动，已存在
+		fname = fmt.Sprintf("%s/%s.%s.%d.log", rs.dir, rs.filename, time.Now().Format(Layout), seq)
+	}
+	logout, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		_ = sequenceStat.Close()
+		return nil, err
+	}
+	rs.logout = logout
+
+	// 开启一次日志轮转检查
+	err = rs.Rotate()
+	if err != nil {
+		return nil, err
+	}
+
+	return rs, nil
 }
 
 func (r *RotateStrategy) SetCurrentSize(size int64) {
@@ -120,7 +144,13 @@ func (r *RotateStrategy) AsyncWork() {
 			_ = r.logout.Close()
 			srcFileName := r.logout.Name()
 			if r.enableCompress {
-				go r.compress(srcFileName)
+				var eg errgroup.Group
+				eg.Go(func() error {
+					return r.compress(srcFileName)
+				})
+				if err := eg.Wait(); err == nil {
+					_ = os.Remove(srcFileName)
+				}
 			}
 
 			logout, err := os.OpenFile(fmt.Sprintf("%s/%s", r.dir, r.filename), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
@@ -165,9 +195,19 @@ func (r *RotateStrategy) Rotate() error {
 
 	r.lock.Lock()
 	defer r.lock.Unlock()
+	srcFileName := r.logout.Name()
 
 	if date != r.currentDate {
 		_ = r.logout.Close()
+		if r.enableCompress {
+			var eg errgroup.Group
+			eg.Go(func() error {
+				return r.compress(srcFileName)
+			})
+			if err := eg.Wait(); err == nil {
+				_ = os.Remove(srcFileName)
+			}
+		}
 
 		if err := r.createNewFile(r.filename, 0); err != nil {
 			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open new file, filename: %s, err: %v", r.filename, err))
@@ -178,9 +218,14 @@ func (r *RotateStrategy) Rotate() error {
 
 	if r.currentSize >= r.threshold {
 		_ = r.logout.Close()
-		srcFileName := r.logout.Name()
 		if r.enableCompress {
-			go r.compress(srcFileName)
+			var eg errgroup.Group
+			eg.Go(func() error {
+				return r.compress(srcFileName)
+			})
+			if err := eg.Wait(); err == nil {
+				_ = os.Remove(srcFileName)
+			}
 		}
 
 		seq, err := r.loadSequence()
@@ -211,6 +256,10 @@ func (r *RotateStrategy) loadSequence() (int, error) {
 	data, err := io.ReadAll(r.sequenceStat)
 	if err != nil {
 		return 0, err
+	}
+
+	if len(data) == 0 {
+		return 0, nil
 	}
 
 	seq, err := strconv.Atoi(string(bytes.TrimSpace(data)))
@@ -249,42 +298,32 @@ func (r *RotateStrategy) createNewFile(filename string, seq int) error {
 }
 
 // compress 执行压缩操作
-func (r *RotateStrategy) compress(srcFilename string) {
-	var err error
+func (r *RotateStrategy) compress(srcFilename string) error {
+	srcFile, err := os.OpenFile(srcFilename, os.O_RDONLY, 0666)
+	if err != nil {
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open gzip file, filename: %s, err: %v", r.filename, err))
+		return err
+	}
 	defer func() {
-		if err == nil {
-			_ = os.Remove(srcFilename)
-		}
+		_ = srcFile.Close()
 	}()
 
 	gzFile, err := os.OpenFile(fmt.Sprintf("%s.gz", srcFilename),
 		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open gzip file, filename: %s, err: %v", r.filename, err))
-		return
+		return err
 	}
 	defer func() {
 		_ = gzFile.Close()
 	}()
 
-	srcFile, err := os.OpenFile(srcFilename, os.O_RDONLY, 0666)
-	if err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open gzip file, filename: %s, err: %v", r.filename, err))
-		return
-	}
-	defer func() {
-		_ = srcFile.Close()
-	}()
-
 	gzWriter, err := gzip.NewWriterLevel(gzFile, r.compressLevel.Int())
 	if err != nil {
 		_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open gzip file, filename: %s, err: %v", r.filename, err))
-		return
+		return err
 	}
 	defer func() {
-		if err == nil {
-			_ = gzWriter.Flush()
-		}
 		_ = gzWriter.Close()
 	}()
 
@@ -294,7 +333,7 @@ func (r *RotateStrategy) compress(srcFilename string) {
 		n, err := srcFile.Read(buf)
 		if err != nil && err != io.EOF {
 			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to read src file to gzip file, err: %v", err))
-			return
+			return err
 		}
 
 		if n == 0 {
@@ -303,9 +342,10 @@ func (r *RotateStrategy) compress(srcFilename string) {
 
 		if _, err = gzWriter.Write(buf[:n]); err != nil {
 			_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to write src file to gzip file, err: %v", err))
-			return
+			return err
 		}
 	}
+	return gzWriter.Flush()
 }
 
 // Close 关闭轮转功能
