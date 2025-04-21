@@ -74,6 +74,12 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool, le
 		return nil, err
 	}
 
+	defer func() {
+		if err != nil {
+			_ = sequenceStat.Close()
+		}
+	}()
+
 	rs := &RotateStrategy{
 		dir:            dir,
 		filename:       filepath.Base(filename),
@@ -89,7 +95,6 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool, le
 
 	seq, err := rs.loadSequence()
 	if err != nil {
-		_ = sequenceStat.Close()
 		return nil, err
 	}
 
@@ -97,17 +102,15 @@ func NewRotateStrategy(filename string, threshold int64, enableCompress bool, le
 	if seq == 0 {
 		// 初次初始化
 		if err = rs.saveSequence(0); err != nil {
-			_ = sequenceStat.Close()
 			return nil, err
 		}
-		fname = filename
+		fname = fmt.Sprintf("%s.%s", filename, time.Now().Format(Layout))
 	} else {
 		// 重新启动，已存在
 		fname = fmt.Sprintf("%s/%s.%s.%d.log", rs.dir, rs.filename, time.Now().Format(Layout), seq)
 	}
 	logout, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		_ = sequenceStat.Close()
 		return nil, err
 	}
 	rs.logout = logout
@@ -153,7 +156,8 @@ func (r *RotateStrategy) AsyncWork() {
 				}
 			}
 
-			logout, err := os.OpenFile(fmt.Sprintf("%s/%s", r.dir, r.filename), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+			logout, err := os.OpenFile(fmt.Sprintf("%s/%s.%s", r.dir, r.filename, time.Now().Format(Layout)),
+				os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 			if err != nil {
 				_, _ = os.Stderr.WriteString(fmt.Sprintf("failed to open filename: %s, err: %v", r.filename, err))
 				return
@@ -351,4 +355,6 @@ func (r *RotateStrategy) compress(srcFilename string) error {
 // Close 关闭轮转功能
 func (r *RotateStrategy) Close() {
 	r.cr.Stop()
+	_ = r.logout.Close()
+	_ = r.sequenceStat.Close()
 }
