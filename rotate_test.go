@@ -16,12 +16,21 @@ package logx
 
 import (
 	"github.com/stretchr/testify/assert"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestNewRotateStrategy(t *testing.T) {
-	rs, err := NewRotateStrategy("logs/test.log", 200, true, DefaultCompression)
+	cfg := &Config{
+		filePath:         "./logs",
+		filename:         "test.log",
+		threshold:        200,
+		enableCompress:   true,
+		compressionLevel: DefaultCompression,
+	}
+	rs, err := NewRotateStrategy(cfg)
 	assert.Nil(t, err)
 
 	for i := 0; i < 100; i++ {
@@ -32,7 +41,14 @@ func TestNewRotateStrategy(t *testing.T) {
 }
 
 func TestNewRotateStrategy_Async_Work(t *testing.T) {
-	rs, err := NewRotateStrategy("logs/test.log", 200, false, NoCompression)
+	cfg := &Config{
+		filePath:         "./logs",
+		filename:         "test.log",
+		threshold:        200,
+		enableCompress:   true,
+		compressionLevel: DefaultCompression,
+	}
+	rs, err := NewRotateStrategy(cfg)
 	assert.Nil(t, err)
 
 	go rs.AsyncWork()
@@ -46,13 +62,46 @@ func TestNewRotateStrategy_Async_Work(t *testing.T) {
 	rs.Close()
 }
 
+func TestNewRotateStrategy_Async_Clean_Work(t *testing.T) {
+	cfg := &Config{
+		filePath:         "./logs",
+		filename:         "test.log",
+		threshold:        200,
+		enableCompress:   true,
+		compressionLevel: DefaultCompression,
+		period:           3,
+	}
+	rs, err := NewRotateStrategy(cfg)
+	assert.Nil(t, err)
+	defer rs.Close()
+
+	go rs.AsyncWork()
+	for i := 0; i < 100; i++ {
+		err = rs.Rotate()
+		assert.Nil(t, err)
+		rs.SetCurrentSize(40)
+	}
+	
+	err = os.Rename(filepath.Join("logs", time.Now().Format(Layout)), "./logs/20250416")
+	assert.Nil(t, err)
+
+	rs.AsyncCleanWork()
+}
+
 // ExampleNewRotateStrategy 日志轮转事例
 // 1. 初始化日志轮转对象
 // 2. 异步开启周期任务
 // 3. 写入数据和设置当前写入数据的大小
 // 4. 结束后调用关闭方法，停掉定时任务
 func ExampleNewRotateStrategy() {
-	rs, err := NewRotateStrategy("logs/test.log", 200, false, DefaultCompression)
+	cfg := &Config{
+		filePath:         "./logs",
+		filename:         "test.log",
+		threshold:        200,
+		enableCompress:   true,
+		compressionLevel: DefaultCompression,
+	}
+	rs, err := NewRotateStrategy(cfg)
 	if err != nil {
 		return
 	}

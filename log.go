@@ -83,7 +83,7 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 		return nil, fmt.Errorf("invalid compression level: %d", cfg.compressionLevel)
 	}
 
-	rs, err := NewRotateStrategy(cfg.filename, cfg.threshold, cfg.enableCompress, cfg.compressionLevel)
+	rs, err := NewRotateStrategy(cfg)
 	if err != nil {
 		return nil, err
 	}
