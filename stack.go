@@ -15,6 +15,8 @@
 package logx
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -92,10 +94,10 @@ func (cw *CallEntityWrap) Fullname() string {
 
 	ce.caller(skip)
 	if cw.enablePC.Load() {
-		return ce.fullstrWithFunc()
+		return ce.fullstrWithFunc(int(cw.parts.Load()))
 	}
 
-	return ce.fullstr()
+	return ce.fullstr(int(cw.parts.Load()))
 }
 
 // Fullnames 获取多条完整的格式化堆栈信息，用于ErrorLevel、PanicLevel和FatalLevel
@@ -115,9 +117,9 @@ func (cw *CallEntityWrap) Fullnames() []string {
 
 		ce.ok, ce.pc, ce.file, ce.line = ok, pc, file, line
 		if cw.enablePC.Load() {
-			res = append(res, ce.fullstr())
+			res = append(res, ce.fullstrWithFunc(int(cw.parts.Load())))
 		} else {
-			res = append(res, ce.fullstrWithFunc())
+			res = append(res, ce.fullstr(int(cw.parts.Load())))
 		}
 		ce.release()
 	}
@@ -185,13 +187,13 @@ func (c *CallerEntity) caller(skip int) {
 }
 
 // fullstr 返回完整的字符串格式数据，不包括方法名
-func (c *CallerEntity) fullstr() string {
+func (c *CallerEntity) fullstr(parts int) string {
 	if !c.ok {
 		return "UNKNOWN"
 	}
 
 	var builder strings.Builder
-	builder.WriteString(c.file)
+	builder.WriteString(c.getFile(parts))
 	builder.WriteString(" line:")
 	builder.WriteString(strconv.Itoa(c.line))
 
@@ -199,19 +201,32 @@ func (c *CallerEntity) fullstr() string {
 }
 
 // fullstrWithFunc 返回完整的字符串格式数据，不包括方法名
-func (c *CallerEntity) fullstrWithFunc() string {
+func (c *CallerEntity) fullstrWithFunc(parts int) string {
 	if !c.ok {
 		return "UNKNOWN"
 	}
 
 	var builder strings.Builder
-	builder.WriteString(c.file)
+	builder.WriteString(c.fname())
+	builder.WriteString(c.getFile(parts))
 	builder.WriteString(" line:")
 	builder.WriteString(strconv.Itoa(c.line))
 	builder.WriteString(" func:")
 	builder.WriteString(c.fname())
 
 	return builder.String()
+}
+
+func (c *CallerEntity) getFile(parts int) string {
+	file := ""
+	sli := strings.Split(c.file, string(os.PathSeparator))
+	if len(sli) == 0 {
+		file = c.file
+	} else {
+		file = filepath.Join(sli[len(sli)-parts:]...)
+	}
+
+	return file
 }
 
 // callers 捕获多级的堆栈信息

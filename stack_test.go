@@ -67,21 +67,21 @@ func TestCallEntityWrap_Fullname(t *testing.T) {
 }
 
 func TestCallEntityWrap_Fullnames(t *testing.T) {
-	cew := newCallEntityWrap(WithPC(), WithSkip(3))
+	cew := newCallEntityWrap(WithPC(), WithSkip(3), WithParts(3))
 	for i := 0; i < 10000; i++ {
 		t.Logf("fullename: %s", cew.Fullnames())
 	}
 }
 
 func BenchmarkCallEntityWrap_Fullnames_NotPC(b *testing.B) {
-	cew := newCallEntityWrap(WithSkip(5))
+	cew := newCallEntityWrap(WithSkip(5), WithPC(), WithParts(2))
 	for i := 0; i < 10000; i++ {
 		b.Logf("fullename: %s", cew.Fullname())
 	}
 }
 
 func BenchmarkCallEntityWrap_Fullnames_PC(b *testing.B) {
-	cew := newCallEntityWrap(WithPC(), WithSkip(5))
+	cew := newCallEntityWrap(WithPC(), WithSkip(4), WithParts(3))
 	for i := 0; i < 10000; i++ {
 		b.Logf("fullename: %s", cew.Fullnames())
 	}
