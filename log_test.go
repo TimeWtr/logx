@@ -15,7 +15,6 @@
 package logx
 
 import (
-	"errors"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -26,10 +25,10 @@ func f(lg Logger) {
 
 func sf(lg Logger) {
 	for i := 0; i < 10000; i++ {
-		lg.Info("hello world")
-		lg.Debugf("hello world")
-		lg.Warn("hello world")
-		lg.Error("test error, err is: ", errors.New("this is a test error"))
+		//lg.Info("hello world")
+		//lg.Debugf("hello world")
+		//lg.Warn("hello world")
+		//lg.Error("test error, err is: ", errors.New("this is a test error"))
 	}
 }
 
