@@ -15,18 +15,17 @@
 package logx
 
 import (
-	"fmt"
 	"testing"
 )
 
 func TestNewANSIColorPlugin(t *testing.T) {
 	cp := NewANSIColorPlugin()
 	for level := _minLevel; level <= _maxLevel; level++ {
-		fmt.Println(cp.Format(false, level))
+		cp.Format(false, level)
 	}
 
 	cp = NewANSIColorPlugin()
 	for level := _minLevel; level <= _maxLevel; level++ {
-		fmt.Println(cp.Format(true, level))
+		cp.Format(true, level)
 	}
 }
