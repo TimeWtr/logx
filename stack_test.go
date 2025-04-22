@@ -66,6 +66,13 @@ func TestCallEntityWrap_Fullname(t *testing.T) {
 	}
 }
 
+func TestCallEntityWrap_OrignalEntity(t *testing.T) {
+	cew := newCallEntityWrap()
+	for i := 0; i < 100; i++ {
+		t.Logf("fullename: %+v", cew.OrignalEntity())
+	}
+}
+
 func TestCallEntityWrap_Fullnames(t *testing.T) {
 	cew := newCallEntityWrap(WithPC(), WithSkip(3), WithParts(3))
 	for i := 0; i < 10000; i++ {

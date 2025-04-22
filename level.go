@@ -89,5 +89,5 @@ func (l LoggerLevel) prohibit(level LoggerLevel) bool {
 
 type LevelChecker interface {
 	// 是否允许打印对应级别的日志
-	check(LoggerLevel) bool
+	prohibit(LoggerLevel) bool
 }
