@@ -56,10 +56,7 @@ var funcNameCache sync.Map
 // callerEntityPool 堆栈实体对象池，减少每次调用堆栈时的对象创建开销和GC开销
 var callerEntityPool = sync.Pool{
 	New: func() interface{} {
-		return &CallerEntity{
-			file: "unknown",
-			line: -1,
-		}
+		return &CEntity{}
 	},
 }
 
@@ -127,7 +124,28 @@ func (cw *CallEntityWrap) Fullnames() []string {
 	return res
 }
 
-// CallerEntity 堆栈调用实体
+// OrignalEntity 获取堆栈的原始数据
+func (cw *CallEntityWrap) OrignalEntity() CallerEntity {
+	ce := newCallerEntity()
+	defer ce.release()
+
+	ce.caller(int(cw.skip.Load()))
+
+	return CallerEntity{
+		pc:   ce.pc,
+		file: ce.file,
+		line: ce.line,
+		ok:   ce.ok,
+	}
+}
+
+// CEntity 堆栈调用实体
+type CEntity struct {
+	CallerEntity
+	// 加锁保护
+	lock sync.Mutex
+}
+
 type CallerEntity struct {
 	// 指向调用的下一级函数
 	pc uintptr
@@ -137,16 +155,14 @@ type CallerEntity struct {
 	line int
 	// 是否成功获取调用的堆栈信息
 	ok bool
-	// 加锁保护
-	lock sync.Mutex
 }
 
-func newCallerEntity() *CallerEntity {
-	return callerEntityPool.Get().(*CallerEntity)
+func newCallerEntity() *CEntity {
+	return callerEntityPool.Get().(*CEntity)
 }
 
 // release 释放对象
-func (c *CallerEntity) release() {
+func (c *CEntity) release() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -156,7 +172,7 @@ func (c *CallerEntity) release() {
 
 // fname 指针指向的方法名称
 // 预先从缓存中加载PC与名称，如果查询不到再解析名称，并缓存映射关系
-func (c *CallerEntity) fname() string {
+func (c *CEntity) fname() string {
 	if !c.ok {
 		return "UNKNOWN"
 	}
@@ -178,7 +194,7 @@ func (c *CallerEntity) fname() string {
 }
 
 // caller 捕获堆栈信息
-func (c *CallerEntity) caller(skip int) {
+func (c *CEntity) caller(skip int) {
 	pc, file, line, ok := runtime.Caller(skip)
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -187,7 +203,7 @@ func (c *CallerEntity) caller(skip int) {
 }
 
 // fullstr 返回完整的字符串格式数据，不包括方法名
-func (c *CallerEntity) fullstr(parts int) string {
+func (c *CEntity) fullstr(parts int) string {
 	if !c.ok {
 		return "UNKNOWN"
 	}
@@ -201,7 +217,7 @@ func (c *CallerEntity) fullstr(parts int) string {
 }
 
 // fullstrWithFunc 返回完整的字符串格式数据，不包括方法名
-func (c *CallerEntity) fullstrWithFunc(parts int) string {
+func (c *CEntity) fullstrWithFunc(parts int) string {
 	if !c.ok {
 		return "UNKNOWN"
 	}
@@ -217,7 +233,7 @@ func (c *CallerEntity) fullstrWithFunc(parts int) string {
 	return builder.String()
 }
 
-func (c *CallerEntity) getFile(parts int) string {
+func (c *CEntity) getFile(parts int) string {
 	file := ""
 	sli := strings.Split(c.file, string(os.PathSeparator))
 	if len(sli) == 0 {
@@ -230,7 +246,7 @@ func (c *CallerEntity) getFile(parts int) string {
 }
 
 // callers 捕获多级的堆栈信息
-func (c *CallerEntity) callers(skips int) ([]uintptr, int) {
+func (c *CEntity) callers(skips int) ([]uintptr, int) {
 	pcs := make([]uintptr, skips)
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -238,7 +254,7 @@ func (c *CallerEntity) callers(skips int) ([]uintptr, int) {
 }
 
 // information 根据pc获取详细堆栈信息
-func (c *CallerEntity) information(pc uintptr) (file string, line int, ok bool) {
+func (c *CEntity) information(pc uintptr) (file string, line int, ok bool) {
 	fn := runtime.FuncForPC(pc)
 	if fn == nil {
 		return "UNKNOWN", 0, false
