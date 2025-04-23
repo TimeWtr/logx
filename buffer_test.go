@@ -93,7 +93,7 @@ func BenchmarkConcurrentWrites(b *testing.B) {
 	msg := []byte(fmt.Sprintf("%s [INFO] logs/test.go line:23  this is a test log, Log entry\n",
 		time.Now().Format(layout)))
 	var wg sync.WaitGroup
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < b.N; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -111,7 +111,7 @@ func BenchmarkNotConcurrentWrites(b *testing.B) {
 
 	msg := []byte(fmt.Sprintf("%s [INFO] logs/test.go line:23  this is a test log, Log entry\n",
 		time.Now().Format(layout)))
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < b.N; i++ {
 		_ = bw.AsyncWrite(msg)
 	}
 }
