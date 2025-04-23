@@ -44,6 +44,12 @@ var bufferWriterPool = sync.Pool{
 	},
 }
 
+var bytesPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, ChunkSize+ChunkSize)
+	},
+}
+
 // 生成全局唯一的crc表，简化crc的256种8位计算和查找，一个crc32表占用1KB内存空间
 var crc32Table = crc32.MakeTable(crc32.IEEE)
 
@@ -109,7 +115,12 @@ func NewBufferWriter(logDir string, interval time.Duration) (*BufferWriter, erro
 // prepareAsyncSwrapData 通道切换前的预准备阶段，需要先拷贝，然后再切换，并返回带crc校验码的字节数组
 func (b *BufferWriter) prepareAsyncSwrapData() []byte {
 	// 深拷贝防止写入过程中数据污染
-	dataToPersist := make([]byte, b.currentBuffer.Len()+CheckSumSize)
+	requiredLen := b.currentBuffer.Len() + CheckSumSize
+	dataToPersist := bytesPool.Get().([]byte)
+	if cap(dataToPersist) < requiredLen {
+		dataToPersist = make([]byte, requiredLen)
+	}
+	dataToPersist = dataToPersist[:requiredLen]
 	copy(dataToPersist, b.currentBuffer.Bytes())
 
 	// 缓存通道切换
@@ -127,6 +138,11 @@ func (b *BufferWriter) prepareAsyncSwrapData() []byte {
 // 异步生成是针对缓冲区中的4KB批量日志数据进行统一生成唯一校验码，节省计算开销
 func (b *BufferWriter) swrapBuffer() error {
 	data := b.prepareAsyncSwrapData()
+	defer func() {
+		data = data[:cap(data)]
+		data = data[:0]
+		bytesPool.Put(data)
+	}()
 
 	var finalErr error
 	const MaxRetry = 5
