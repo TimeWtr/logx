@@ -109,7 +109,7 @@ func NewBufferWriter(logDir string, interval time.Duration) (*BufferWriter, erro
 // prepareAsyncSwrapData 通道切换前的预准备阶段，需要先拷贝，然后再切换，并返回带crc校验码的字节数组
 func (b *BufferWriter) prepareAsyncSwrapData() []byte {
 	// 深拷贝防止写入过程中数据污染
-	dataToPersist := make([]byte, b.currentBuffer.Len())
+	dataToPersist := make([]byte, b.currentBuffer.Len()+CheckSumSize)
 	copy(dataToPersist, b.currentBuffer.Bytes())
 
 	// 缓存通道切换
@@ -117,11 +117,9 @@ func (b *BufferWriter) prepareAsyncSwrapData() []byte {
 	b.currentBuffer.Reset()
 
 	// 计算crc校验码
-	checkSum := crc32.Checksum(dataToPersist, crc32Table)
-	crc := make([]byte, CheckSumSize)
-	binary.BigEndian.PutUint32(crc, checkSum)
-
-	return append(dataToPersist, crc...)
+	checkSum := crc32.Checksum(dataToPersist[:len(dataToPersist)-CheckSumSize], crc32Table)
+	binary.BigEndian.PutUint32(dataToPersist[len(dataToPersist)-CheckSumSize:], checkSum)
+	return dataToPersist
 }
 
 // swrapBuffer 用于交换缓冲区和记录WAL写入点，批量写入WAL时也需要生成各自的校验码

@@ -6,6 +6,12 @@ tidy:
 ut:
 	@go test -race ./...
 
+.PHONY: clean
+clean:
+	@rm -f logx.test
+	@cd logs && rm -rf *
+
+
 .PHONY: check
 check:
 	@$(MAKE) --no-print-directory tidy
