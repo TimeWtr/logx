@@ -12,29 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logx
+package core
 
-func f(lg Logger) {
-	sf(lg)
+// Formatter Json/Text等格式化为字符串
+type Formatter interface {
+	Format(Entity) string
 }
 
-func sf(lg Logger) {
-	for i := 0; i < 10000; i++ {
-		//lg.Info("hello world")
-		//lg.Debugf("hello world")
-		//lg.Warn("hello world")
-		//lg.Error("test error, err is: ", errors.New("this is a test error"))
-	}
+// BinaryFormatter Protobuf等格式化为二进制
+type BinaryFormatter interface {
+	Format(Entity) []byte
 }
-
-//func TestNewLog(t *testing.T) {
-//	lg, err := NewLog(
-//		"./logs",
-//		WithColor(),
-//		WithAsync(),
-//		WithThreshold(1024*100),
-//		WithCallSkip(3))
-//	assert.NoError(t, err)
-//	assert.NotNil(t, lg)
-//	f(lg)
-//}

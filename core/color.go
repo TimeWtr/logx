@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logx
+package core
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const (
 	DebugColor Color = iota + 30

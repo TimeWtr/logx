@@ -16,6 +16,7 @@ package logx
 
 import (
 	"fmt"
+	"github.com/TimeWtr/logx/core"
 	"strings"
 	"sync"
 )
@@ -58,7 +59,7 @@ type Log struct {
 	// 轮转策略
 	rs *RotateStrategy
 	// 日志加颜色输出
-	cp ColorPlugin
+	cp core.ColorPlugin
 }
 
 func NewLog(filePath string, opts ...Options) (Logger, error) {
@@ -69,7 +70,7 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 	cfg := &Config{
 		filePath:         filePath,
 		filename:         DefaultFilename,
-		level:            InfoLevel,
+		level:            core.InfoLevel,
 		location:         DefaultLocation,
 		enableLine:       true,
 		callSkip:         DefaultErrCoreSkip,
@@ -96,13 +97,13 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 		cfg: cfg,
 		mu:  new(sync.Mutex),
 		rs:  rs,
-		cp:  NewANSIColorPlugin(),
+		cp:  core.NewANSIColorPlugin(),
 	}
 
 	return l, nil
 }
 
-func (l *Log) prefix(enabled bool, level LoggerLevel, v ...any) string {
+func (l *Log) prefix(enabled bool, level core.LoggerLevel, v ...any) string {
 	var builder strings.Builder
 	builder.WriteString(l.cp.Format(enabled, level))
 	//builder.WriteString(Streamline() + "\t")
@@ -110,10 +111,10 @@ func (l *Log) prefix(enabled bool, level LoggerLevel, v ...any) string {
 	return builder.String()
 }
 
-func (l *Log) prefixf(enabled bool, level LoggerLevel, format string, v ...any) string {
+func (l *Log) prefixf(enabled bool, level core.LoggerLevel, format string, v ...any) string {
 	var builder strings.Builder
 	builder.WriteString(l.cp.Format(enabled, level))
-	if level.prohibit(InfoLevel) {
+	if level.Prohibit(core.InfoLevel) {
 		//builder.WriteString(Streamline() + "\t")
 	}
 	builder.WriteString(fmt.Sprintf(format, v...))
@@ -121,127 +122,127 @@ func (l *Log) prefixf(enabled bool, level LoggerLevel, format string, v ...any) 
 }
 
 func (l *Log) Debug(v ...any) {
-	if l.cfg.level.prohibit(DebugLevel) {
+	if l.cfg.level.Prohibit(core.DebugLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.normalExecf(NormalMode, DebugLevel, "", v...)
+	l.normalExecf(NormalMode, core.DebugLevel, "", v...)
 }
 
 func (l *Log) Info(v ...any) {
-	if l.cfg.level.prohibit(InfoLevel) {
+	if l.cfg.level.Prohibit(core.InfoLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.normalExecf(NormalMode, InfoLevel, "", v...)
+	l.normalExecf(NormalMode, core.InfoLevel, "", v...)
 }
 
 func (l *Log) Warn(v ...any) {
-	if l.cfg.level.prohibit(WarnLevel) {
+	if l.cfg.level.Prohibit(core.WarnLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.normalExecf(NormalMode, WarnLevel, "", v...)
+	l.normalExecf(NormalMode, core.WarnLevel, "", v...)
 }
 
 func (l *Log) Error(v ...any) {
-	if l.cfg.level.prohibit(ErrorLevel) {
+	if l.cfg.level.Prohibit(core.ErrorLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.abnormalExecf(NormalMode, ErrorLevel, "", v...)
+	l.abnormalExecf(NormalMode, core.ErrorLevel, "", v...)
 }
 
 func (l *Log) Panic(v ...any) {
-	if l.cfg.level.prohibit(PanicLevel) {
+	if l.cfg.level.Prohibit(core.PanicLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.abnormalExecf(NormalMode, PanicLevel, "", v...)
+	l.abnormalExecf(NormalMode, core.PanicLevel, "", v...)
 }
 
 func (l *Log) Fatal(v ...any) {
-	if l.cfg.level.prohibit(FatalLevel) {
+	if l.cfg.level.Prohibit(core.FatalLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.abnormalExecf(NormalMode, FatalLevel, "", v...)
+	l.abnormalExecf(NormalMode, core.FatalLevel, "", v...)
 }
 
 func (l *Log) Debugf(format string, v ...any) {
-	if l.cfg.level.prohibit(DebugLevel) {
+	if l.cfg.level.Prohibit(core.DebugLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.normalExecf(FormatMode, DebugLevel, format, v...)
+	l.normalExecf(FormatMode, core.DebugLevel, format, v...)
 }
 
 func (l *Log) Infof(format string, v ...any) {
-	if l.cfg.level.prohibit(InfoLevel) {
+	if l.cfg.level.Prohibit(core.InfoLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.normalExecf(FormatMode, InfoLevel, format, v...)
+	l.normalExecf(FormatMode, core.InfoLevel, format, v...)
 }
 
 func (l *Log) Warnf(format string, v ...any) {
-	if l.cfg.level.prohibit(WarnLevel) {
+	if l.cfg.level.Prohibit(core.WarnLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.normalExecf(FormatMode, WarnLevel, format, v...)
+	l.normalExecf(FormatMode, core.WarnLevel, format, v...)
 }
 
 func (l *Log) Errorf(format string, v ...any) {
-	if l.cfg.level.prohibit(ErrorLevel) {
+	if l.cfg.level.Prohibit(core.ErrorLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.abnormalExecf(FormatMode, ErrorLevel, format, v...)
+	l.abnormalExecf(FormatMode, core.ErrorLevel, format, v...)
 }
 
 func (l *Log) Panicf(format string, v ...any) {
-	if l.cfg.level.prohibit(PanicLevel) {
+	if l.cfg.level.Prohibit(core.PanicLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.abnormalExecf(FormatMode, PanicLevel, format, v...)
+	l.abnormalExecf(FormatMode, core.PanicLevel, format, v...)
 }
 
 func (l *Log) Fatalf(format string, v ...any) {
-	if l.cfg.level.prohibit(FatalLevel) {
+	if l.cfg.level.Prohibit(core.FatalLevel) {
 		return
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.abnormalExecf(FormatMode, FatalLevel, format, v...)
+	l.abnormalExecf(FormatMode, core.FatalLevel, format, v...)
 }
 
 // normalExecf 正常级别下真正执行写入的方法
-func (l *Log) normalExecf(mode WriteMode, level LoggerLevel, format string, v ...any) {
+func (l *Log) normalExecf(mode WriteMode, level core.LoggerLevel, format string, v ...any) {
 	err := l.rs.Rotate()
 	if err != nil {
 		return
@@ -260,7 +261,7 @@ func (l *Log) normalExecf(mode WriteMode, level LoggerLevel, format string, v ..
 }
 
 // abnormalExecf 异常级别下真正执行写入的方法
-func (l *Log) abnormalExecf(mode WriteMode, level LoggerLevel, format string, v ...any) {
+func (l *Log) abnormalExecf(mode WriteMode, level core.LoggerLevel, format string, v ...any) {
 	err := l.rs.Rotate()
 	if err != nil {
 		return

@@ -14,6 +14,8 @@
 
 package logx
 
+import "github.com/TimeWtr/logx/core"
+
 type Options func(*Config)
 
 // WithColor 是否开启日志输出颜色
@@ -24,7 +26,7 @@ func WithColor() Options {
 }
 
 // WithLevel 设置日志级别，如果不设置，默认级别是InfoLevel
-func WithLevel(level LoggerLevel) Options {
+func WithLevel(level core.LoggerLevel) Options {
 	return func(l *Config) {
 		l.level = level
 	}
