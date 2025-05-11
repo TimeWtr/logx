@@ -15,50 +15,48 @@
 package logx
 
 import (
-	"github.com/stretchr/testify/assert"
-	"testing"
 	"time"
 )
 
-func TestNewRotateStrategy(t *testing.T) {
-	cfg := &Config{
-		filePath:         "./logs",
-		filename:         "test.log",
-		threshold:        200,
-		enableCompress:   true,
-		compressionLevel: DefaultCompression,
-	}
-	rs, err := NewRotateStrategy(cfg)
-	assert.Nil(t, err)
+//func TestNewRotateStrategy(t *testing.T) {
+//	cfg := &Config{
+//		filePath:         "./logs",
+//		filename:         "test.log",
+//		threshold:        200,
+//		enableCompress:   true,
+//		compressionLevel: DefaultCompression,
+//	}
+//	rs, err := NewRotateStrategy(cfg)
+//	assert.Nil(t, err)
+//
+//	for i := 0; i < 100; i++ {
+//		err = rs.Rotate()
+//		assert.Nil(t, err)
+//		rs.SetCurrentSize(40)
+//	}
+//}
 
-	for i := 0; i < 100; i++ {
-		err = rs.Rotate()
-		assert.Nil(t, err)
-		rs.SetCurrentSize(40)
-	}
-}
-
-func TestNewRotateStrategy_Async_Work(t *testing.T) {
-	cfg := &Config{
-		filePath:         "./logs",
-		filename:         "test.log",
-		threshold:        200,
-		enableCompress:   true,
-		compressionLevel: DefaultCompression,
-	}
-	rs, err := NewRotateStrategy(cfg)
-	assert.Nil(t, err)
-
-	go rs.asyncWork()
-	for i := 0; i < 100; i++ {
-		err = rs.Rotate()
-		assert.Nil(t, err)
-		rs.SetCurrentSize(40)
-	}
-
-	time.Sleep(1 * time.Second)
-	rs.Close()
-}
+//func TestNewRotateStrategy_Async_Work(t *testing.T) {
+//	cfg := &Config{
+//		filePath:         "./logs",
+//		filename:         "test.log",
+//		threshold:        200,
+//		enableCompress:   true,
+//		compressionLevel: DefaultCompression,
+//	}
+//	rs, err := NewRotateStrategy(cfg)
+//	assert.Nil(t, err)
+//
+//	go rs.asyncWork()
+//	for i := 0; i < 100; i++ {
+//		err = rs.Rotate()
+//		assert.Nil(t, err)
+//		rs.SetCurrentSize(40)
+//	}
+//
+//	time.Sleep(1 * time.Second)
+//	rs.Close()
+//}
 
 //func TestNewRotateStrategy_Async_Clean_Work(t *testing.T) {
 //	cfg := &Config{

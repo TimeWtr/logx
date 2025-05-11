@@ -14,11 +14,13 @@
 
 package logx
 
+import "github.com/TimeWtr/logx/core"
+
 type Config struct {
 	// 日志文件的保存路径
 	filePath string
 	// 日志级别
-	level LoggerLevel
+	level core.LoggerLevel
 	// 文件名称
 	filename string
 	// 是否打印行号，默认打印

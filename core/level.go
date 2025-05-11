@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logx
+package core
 
 import "fmt"
 
@@ -81,9 +81,9 @@ func (l LoggerLevel) valid() bool {
 	return l > _maxLevel || l < _minLevel
 }
 
-// prohibit 校验日志级别，如果当前的日志级别比允许的级别高就返回为false，
+// Prohibit 校验日志级别，如果当前的日志级别比允许的级别高就返回为false，
 // 允许打印日志，返回返回为true，禁止打印日志
-func (l LoggerLevel) prohibit(level LoggerLevel) bool {
+func (l LoggerLevel) Prohibit(level LoggerLevel) bool {
 	return l > level
 }
 
