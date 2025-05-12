@@ -38,7 +38,7 @@ type Logger interface {
 
 const (
 	DefaultErrCoreSkip = 3
-	DeaultLogSize      = 100 * 1024 * 1024
+	DefaultLogSize     = 100 * 1024 * 1024
 	DefaultPeriod      = 30
 	DefaultLocation    = "Asia/Shanghai"
 	DefaultFilename    = "server.log"
@@ -74,7 +74,7 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 		location:         DefaultLocation,
 		enableLine:       true,
 		callSkip:         DefaultErrCoreSkip,
-		threshold:        DeaultLogSize,
+		threshold:        DefaultLogSize,
 		period:           DefaultPeriod,
 		enableCompress:   false,
 		compressionLevel: DefaultCompression,
