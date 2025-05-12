@@ -16,12 +16,14 @@ package core
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
 
 func TestNewBuffer(t *testing.T) {
-	bf := NewBuffer(1000)
+	bf := NewBuffer(2000)
 
 	ch := bf.Register()
 	var wg sync.WaitGroup
@@ -29,13 +31,19 @@ func TestNewBuffer(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
+		counter := 0
 		for {
 			select {
 			case data, ok := <-ch:
 				if !ok {
+					t.Log("通道关闭")
+					t.Logf("接收到日志数据条数: %d", counter)
 					return
 				}
 				t.Logf("【读取日志】日志内容为：%s", data)
+				counter++
+			default:
+
 			}
 		}
 	}()
@@ -45,10 +53,7 @@ func TestNewBuffer(t *testing.T) {
 		defer bf.Close()
 
 		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: %d\n"
-		for i := 0; i < 2000; i++ {
-			if i == 1000 {
-				t.Log("counter: 1000")
-			}
+		for i := 0; i < 500000; i++ {
 			err := bf.Write(fmt.Sprintf(template, i))
 			if err != nil {
 				t.Logf("写入日志失败，错误：%s\n", err.Error())
@@ -60,4 +65,99 @@ func TestNewBuffer(t *testing.T) {
 
 	wg.Wait()
 	t.Log("写入成功")
+}
+
+func BenchmarkNewBuffer(b *testing.B) {
+	bf := NewBuffer(5000)
+
+	ch := bf.Register()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+
+		counter := 0
+		for {
+			select {
+			case data, ok := <-ch:
+				if !ok {
+					b.Log("通道关闭")
+					b.Logf("接收到日志数据条数: %d", counter)
+					return
+				}
+				b.Logf("【读取日志】日志内容为：%s", data)
+				counter++
+			default:
+
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer bf.Close()
+
+		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: "
+		for i := 0; i < b.N; i++ {
+			var builder strings.Builder
+			builder.WriteString(template)
+			builder.WriteString(strconv.Itoa(i))
+			builder.WriteString("\n")
+			err := bf.Write(builder.String())
+			if err != nil {
+				b.Logf("写入日志失败，错误：%s\n", err.Error())
+				continue
+			}
+			b.Logf("日志%d写入成功\n", i)
+		}
+	}()
+
+	wg.Wait()
+	b.Log("写入成功")
+}
+
+func BenchmarkNewBuffer_No_Log(b *testing.B) {
+	bf := NewBuffer(5000)
+
+	ch := bf.Register()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+
+		counter := 0
+		for {
+			select {
+			case _, ok := <-ch:
+				if !ok {
+					b.Log("收到日志条数: ", counter)
+					return
+				}
+				counter++
+			default:
+
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer bf.Close()
+
+		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: "
+		for i := 0; i < b.N; i++ {
+			var builder strings.Builder
+			builder.WriteString(template)
+			builder.WriteString(strconv.Itoa(i))
+			builder.WriteString("\n")
+			err := bf.Write(builder.String())
+			if err != nil {
+				b.Logf("写入日志失败，错误：%s\n", err.Error())
+				continue
+			}
+		}
+	}()
+
+	wg.Wait()
+	b.Log("写入成功")
 }
