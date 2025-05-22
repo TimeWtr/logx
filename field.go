@@ -24,8 +24,8 @@ const (
 	ObjectTypeField
 	// BinaryTypeField 二进制格式的字段类型
 	BinaryTypeField
-	// JsonTypeField Json格式的字段类型
-	JsonTypeField
+	// JSONTypeField Json格式的字段类型
+	JSONTypeField
 	// BoolTypeField 布尔格式的字段类型
 	BoolTypeField
 	// IntTypeField 数值格式的字段类型

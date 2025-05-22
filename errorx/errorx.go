@@ -12,4 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logx
+package errorx
+
+import "errors"
+
+var (
+	ErrBufferClose = errors.New("buffer is closed")
+	ErrBufferFull  = errors.New("buffer is full")
+)
+
+var (
+	ErrPoolNil     = errors.New("pool returned nil object")
+	ErrPoolType    = errors.New("pool returned invalid type")
+	ErrPoolEmpty   = errors.New("pool returned empty object")
+	ErrPoolMaxSize = errors.New("pool object over max size")
+)

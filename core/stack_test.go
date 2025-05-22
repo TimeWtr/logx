@@ -44,15 +44,15 @@ func f4() []string {
 }
 
 func TestStreamline(t *testing.T) {
-	fmt.Println(m(), "test content")
+	t.Log(m(), "test content")
 }
 
 func TestMultiLevel(t *testing.T) {
-	fmt.Println(f4(), "test multi level content")
+	t.Log(f4(), "test multi level content")
 }
 
 func TestMultiLevel_line(t *testing.T) {
-	fmt.Println("test multi level content")
+	t.Log("test multi level content")
 	levels := f4()
 	for _, level := range levels {
 		fmt.Println(level)

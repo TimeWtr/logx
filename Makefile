@@ -1,3 +1,7 @@
+.PHONY: setup
+setup:
+	@sh ./scripts/setup.sh
+
 .PHONY: tidy
 tidy:
 	@go mod tidy
@@ -11,6 +15,9 @@ clean:
 	@rm -f logx.test
 	@cd logs && rm -rf *
 
+.PHONY: lint
+lint:
+	@golangci-lint run -c ./scripts/lint/.golangci.yml ./...
 
 .PHONY: check
 check:

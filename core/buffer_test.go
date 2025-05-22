@@ -20,98 +20,149 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestConcurrentSyncWrites(t *testing.T) {
-	bw, _ := NewBufferWriter("./logs", time.Second)
-	defer bw.Close()
+func TestNewBuffer(t *testing.T) {
+	bf, err := NewBuffer(2000, 10)
+	assert.NoError(t, err)
 
-	const layout = "2006-01-02 15:04:05"
-
-	const template = "[INFO] logs/test.go line:23  this is a test log, Log entry: "
+	ch := bf.Register()
 	var wg sync.WaitGroup
-	for i := 0; i < 1000; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+
+		counter := 0
+		for {
+			select {
+			case data, ok := <-ch:
+				if !ok {
+					t.Log("通道关闭")
+					t.Logf("接收到日志数据条数: %d", counter)
+					return
+				}
+				t.Logf("【读取日志】日志内容为：%s", data)
+				counter++
+			default:
+
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer bf.Close()
+
+		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: %d\n"
+		for i := 0; i < 500000; i++ {
+			err := bf.Write(fmt.Sprintf(template, i))
+			if err != nil {
+				t.Logf("写入日志失败，错误：%s\n", err.Error())
+				continue
+			}
+			t.Logf("日志%d写入成功\n", i)
+		}
+	}()
+
+	wg.Wait()
+	t.Log("写入成功")
+}
+
+func BenchmarkNewBuffer(b *testing.B) {
+	bf, err := NewBuffer(5000, 10)
+	assert.NoError(b, err)
+
+	ch := bf.Register()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+
+		counter := 0
+		for {
+			select {
+			case data, ok := <-ch:
+				if !ok {
+					b.Log("通道关闭")
+					b.Logf("接收到日志数据条数: %d", counter)
+					return
+				}
+				b.Logf("【读取日志】日志内容为：%s", data)
+				counter++
+			default:
+
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer bf.Close()
+
+		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: "
+		for i := 0; i < b.N; i++ {
 			var builder strings.Builder
-			builder.WriteString(time.Now().Format(layout))
 			builder.WriteString(template)
 			builder.WriteString(strconv.Itoa(i))
 			builder.WriteString("\n")
-			msg := []byte(builder.String())
-			if err := bw.SyncWrite(msg); err != nil {
-				t.Errorf("Write failed: %v", err)
+			err := bf.Write(builder.String())
+			if err != nil {
+				b.Logf("写入日志失败，错误：%s\n", err.Error())
+				continue
 			}
-		}(i)
-	}
-	wg.Wait()
-}
-
-func TestConcurrent_Async_Writes(t *testing.T) {
-	bw, _ := NewBufferWriter("./logs", time.Second)
-	defer bw.Close()
-
-	const layout = "2006-01-02 15:04:05"
-
-	var wg sync.WaitGroup
-	for i := 0; i < 100000; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			msg := []byte(fmt.Sprintf("%s [INFO] logs/test.go line:23  this is a test log, Log entry %d\n",
-				time.Now().Format(layout), i))
-			if err := bw.AsyncWrite(msg); err != nil {
-				t.Errorf("Write failed: %v", err)
-			}
-		}(i)
-	}
-	wg.Wait()
-}
-
-func TestNotConcurrentWrites(t *testing.T) {
-	bw, _ := NewBufferWriter("./logs", time.Second)
-	defer bw.Close()
-
-	const layout = "2006-01-02 15:04:05"
-	msg := []byte(fmt.Sprintf("%s [INFO] logs/test.go line:23  this is a test log, Log entry\n",
-		time.Now().Format(layout)))
-	for i := 0; i < 100000; i++ {
-		if err := bw.AsyncWrite(msg); err != nil {
-			t.Errorf("Write failed: %v", err)
+			b.Logf("日志%d写入成功\n", i)
 		}
-	}
-}
+	}()
 
-func BenchmarkConcurrentWrites(b *testing.B) {
-	bw, _ := NewBufferWriter("./logs", time.Second)
-	defer bw.Close()
-
-	const layout = "2006-01-02 15:04:05"
-
-	msg := []byte(fmt.Sprintf("%s [INFO] logs/test.go line:23  this is a test log, Log entry\n",
-		time.Now().Format(layout)))
-	var wg sync.WaitGroup
-	for i := 0; i < b.N; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_ = bw.AsyncWrite(msg)
-		}(i)
-	}
 	wg.Wait()
+	b.Log("写入成功")
 }
 
-func BenchmarkNotConcurrentWrites(b *testing.B) {
-	bw, _ := NewBufferWriter("./logs", time.Second)
-	defer bw.Close()
+func BenchmarkNewBuffer_No_Log(b *testing.B) {
+	bf, err := NewBuffer(5000, 10)
+	assert.NoError(b, err)
 
-	const layout = "2006-01-02 15:04:05"
+	ch := bf.Register()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
 
-	msg := []byte(fmt.Sprintf("%s [INFO] logs/test.go line:23  this is a test log, Log entry\n",
-		time.Now().Format(layout)))
-	for i := 0; i < b.N; i++ {
-		_ = bw.AsyncWrite(msg)
-	}
+		counter := 0
+		for {
+			select {
+			case _, ok := <-ch:
+				if !ok {
+					b.Log("收到日志条数: ", counter)
+					return
+				}
+				counter++
+			default:
+
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer bf.Close()
+
+		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: "
+		for i := 0; i < b.N; i++ {
+			var builder strings.Builder
+			builder.WriteString(template)
+			builder.WriteString(strconv.Itoa(i))
+			builder.WriteString("\n")
+			err := bf.Write(builder.String())
+			if err != nil {
+				b.Logf("写入日志失败，错误：%s\n", err.Error())
+				continue
+			}
+		}
+	}()
+
+	wg.Wait()
+	b.Log("写入成功")
 }

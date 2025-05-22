@@ -14,7 +14,9 @@
 
 package core
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type LoggerLevel uint8
 
@@ -78,13 +80,13 @@ func (l LoggerLevel) UpperString() string {
 
 // valid 校验是否是合法的日志级别
 func (l LoggerLevel) valid() bool {
-	return l > _maxLevel || l < _minLevel
+	return l <= _maxLevel && l >= _minLevel
 }
 
 // Prohibit 校验日志级别，如果当前的日志级别比允许的级别高就返回为false，
 // 允许打印日志，返回返回为true，禁止打印日志
 func (l LoggerLevel) Prohibit(level LoggerLevel) bool {
-	return l > level
+	return l <= level
 }
 
 type LevelChecker interface {
