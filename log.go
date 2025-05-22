@@ -16,9 +16,10 @@ package logx
 
 import (
 	"fmt"
-	"github.com/TimeWtr/logx/core"
 	"strings"
 	"sync"
+
+	"github.com/TimeWtr/logx/core"
 )
 
 type Logger interface {
@@ -56,8 +57,6 @@ type Log struct {
 	cfg *Config
 	// 并发保护
 	mu *sync.Mutex
-	// 轮转策略
-	rs *RotateStrategy
 	// 日志加颜色输出
 	cp core.ColorPlugin
 }
@@ -88,15 +87,9 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 		return nil, fmt.Errorf("invalid compression level: %d", cfg.compressionLevel)
 	}
 
-	rs, err := NewRotateStrategy(cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	l := &Log{
 		cfg: cfg,
 		mu:  new(sync.Mutex),
-		rs:  rs,
 		cp:  core.NewANSIColorPlugin(),
 	}
 
@@ -106,7 +99,6 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 func (l *Log) prefix(enabled bool, level core.LoggerLevel, v ...any) string {
 	var builder strings.Builder
 	builder.WriteString(l.cp.Format(enabled, level))
-	//builder.WriteString(Streamline() + "\t")
 	builder.WriteString(fmt.Sprint(v...))
 	return builder.String()
 }
@@ -115,7 +107,7 @@ func (l *Log) prefixf(enabled bool, level core.LoggerLevel, format string, v ...
 	var builder strings.Builder
 	builder.WriteString(l.cp.Format(enabled, level))
 	if level.Prohibit(core.InfoLevel) {
-		//builder.WriteString(Streamline() + "\t")
+		// TODO 处理这个分支
 	}
 	builder.WriteString(fmt.Sprintf(format, v...))
 	return builder.String()
@@ -243,11 +235,6 @@ func (l *Log) Fatalf(format string, v ...any) {
 
 // normalExecf 正常级别下真正执行写入的方法
 func (l *Log) normalExecf(mode WriteMode, level core.LoggerLevel, format string, v ...any) {
-	err := l.rs.Rotate()
-	if err != nil {
-		return
-	}
-
 	var msg string
 	switch mode {
 	case NormalMode:
@@ -256,17 +243,11 @@ func (l *Log) normalExecf(mode WriteMode, level core.LoggerLevel, format string,
 		msg = l.prefixf(false, level, format, v...)
 	}
 
-	l.rs.lg.Println(msg)
-	l.rs.SetCurrentSize(int64(len(msg)))
+	fmt.Println(msg)
 }
 
 // abnormalExecf 异常级别下真正执行写入的方法
 func (l *Log) abnormalExecf(mode WriteMode, level core.LoggerLevel, format string, v ...any) {
-	err := l.rs.Rotate()
-	if err != nil {
-		return
-	}
-
 	var msg string
 	switch mode {
 	case NormalMode:
@@ -274,14 +255,13 @@ func (l *Log) abnormalExecf(mode WriteMode, level core.LoggerLevel, format strin
 	case FormatMode:
 		msg = l.prefixf(false, level, format, v...)
 	}
-
-	l.rs.lg.Print(msg)
-	size := l.abnormalStack() + len(msg)
-	l.rs.SetCurrentSize(int64(size))
+	fmt.Println(msg)
 }
 
 // abnormalStack 用于打印异常情况下的多行堆栈信息，特殊处理，Debug、Info级别不需要
 // 返回写入的数据大小
+//
+//nolint:unused  // 后边要使用
 func (l *Log) abnormalStack() int {
 	var builder strings.Builder
 	//for _, s := range MultiLevel(l.cfg.callSkip) {
@@ -290,6 +270,7 @@ func (l *Log) abnormalStack() int {
 	//}
 
 	res := builder.String()
-	_, _ = l.rs.logout.WriteString(res)
+	//_, _ = l.rs.logout.WriteString(res)
+	fmt.Println(res)
 	return len(res)
 }

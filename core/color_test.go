@@ -19,6 +19,7 @@ import (
 )
 
 func TestNewANSIColorPlugin(t *testing.T) {
+	t.Log("TestNewANSIColorPlugin")
 	cp := NewANSIColorPlugin()
 	for level := _minLevel; level <= _maxLevel; level++ {
 		cp.Format(false, level)

@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/TimeWtr/logx/_const"
 )
 
 const (
@@ -158,7 +160,8 @@ type CallerEntity struct {
 }
 
 func newCallerEntity() *CEntity {
-	return callerEntityPool.Get().(*CEntity)
+	obj, _ := callerEntityPool.Get().(*CEntity)
+	return obj
 }
 
 // release 释放对象
@@ -174,18 +177,20 @@ func (c *CEntity) release() {
 // 预先从缓存中加载PC与名称，如果查询不到再解析名称，并缓存映射关系
 func (c *CEntity) fname() string {
 	if !c.ok {
-		return "UNKNOWN"
+		return _const.Unknown
 	}
 
 	fn, ok := funcNameCache.Load(c.pc)
 	if ok {
-		return fn.(string)
+		fname, _ := fn.(string)
+		return fname
 	}
 
 	fn = runtime.FuncForPC(c.pc).Name()
-	fnSli := strings.Split(fn.(string), ".")
+	fname, _ := fn.(string)
+	fnSli := strings.Split(fname, ".")
 	if len(fnSli) == 0 {
-		return "UNKNOWN"
+		return _const.Unknown
 	}
 	name := fnSli[len(fnSli)-1]
 	funcNameCache.Store(c.pc, name)
@@ -205,7 +210,7 @@ func (c *CEntity) caller(skip int) {
 // fullstr 返回完整的字符串格式数据，不包括方法名
 func (c *CEntity) fullstr(parts int) string {
 	if !c.ok {
-		return "UNKNOWN"
+		return _const.Unknown
 	}
 
 	var builder strings.Builder
@@ -234,7 +239,7 @@ func (c *CEntity) fullstrWithFunc(parts int) string {
 }
 
 func (c *CEntity) getFile(parts int) string {
-	file := ""
+	var file string
 	sli := strings.Split(c.file, string(os.PathSeparator))
 	if len(sli) == 0 {
 		file = c.file
@@ -246,10 +251,11 @@ func (c *CEntity) getFile(parts int) string {
 }
 
 // callers 捕获多级的堆栈信息
-func (c *CEntity) callers(skips int) ([]uintptr, int) {
-	pcs := make([]uintptr, skips)
+func (c *CEntity) callers(skips int) (pcs []uintptr, cs int) {
+	pcs = make([]uintptr, skips)
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
 	return pcs, runtime.Callers(skips, pcs)
 }
 

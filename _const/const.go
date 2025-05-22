@@ -12,11 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package error
+package _const
 
-import "errors"
+import (
+	"os"
+)
 
-var (
-	BufferClose = errors.New("buffer is closed")
-	BufferFull  = errors.New("buffer is full")
+const (
+	Unknown = "UNKNOWN"
+)
+
+// 文件系统操作权限组
+const (
+	ReadOnlyFile  os.FileMode = 0o444 // 只读文件
+	ReadWriteFile os.FileMode = 0o644 // 读写文件
 )

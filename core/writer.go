@@ -59,7 +59,7 @@ type Entity struct {
 // Writer 定义抽象的Writer接口，支持文件、网络、终端和消息队列(Kafka)的写入/输出
 type Writer interface {
 	io.Writer
-	//Flush 刷新缓冲区(文件、网络)
+	// Flush 刷新缓冲区(文件、网络)
 	Flush() error
 	// Close 释放资源
 	Close() error
@@ -69,21 +69,23 @@ type FileWriter struct {
 	w io.Writer
 }
 
-func NewFileWriter() Writer {
-	return &FileWriter{}
+func NewFileWriter(w io.Writer) Writer {
+	return &FileWriter{
+		w: w,
+	}
 }
 
-func (f *FileWriter) Write(p []byte) (n int, err error) {
-	//TODO implement me
+func (f *FileWriter) Write(_ []byte) (n int, err error) {
+	// TODO implement me
 	panic("implement me")
 }
 
 func (f *FileWriter) Flush() error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (f *FileWriter) Close() error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
