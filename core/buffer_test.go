@@ -25,7 +25,7 @@ import (
 )
 
 func TestNewBuffer(t *testing.T) {
-	bf, err := NewBuffer(2000, 10)
+	bf, err := NewBuffer(5000, 10)
 	assert.NoError(t, err)
 
 	ch := bf.Register()
@@ -46,7 +46,6 @@ func TestNewBuffer(t *testing.T) {
 				t.Logf("【读取日志】日志内容为：%s", data)
 				counter++
 			default:
-
 			}
 		}
 	}()
