@@ -15,6 +15,7 @@
 package core
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,7 +29,7 @@ const (
 	// PercentThreshold 缓冲区切换的比例阈值
 	PercentThreshold = 0.8
 	// TimeThreshold 缓冲区切换的时间阈值
-	TimeThreshold = 500 * time.Millisecond
+	TimeThreshold = 1 * time.Second
 )
 
 // Buffer 缓冲区包含两个缓冲通道，active缓冲区为活跃缓冲区，实时接收日志数据
@@ -63,7 +64,7 @@ type Buffer struct {
 // NewBuffer 双缓冲通道设计，capacity为单个缓冲通道的容量，maxSize为对象池中
 // 允许创建的最大对象数量
 func NewBuffer(capacity int64, maxSize int) (*Buffer, error) {
-	p, err := NewWrapPool[chan string](func() chan string {
+	pool, err := NewWrapPool[chan string](func() chan string {
 		return make(chan string, capacity)
 	}, func(ch chan string) chan string {
 		for {
@@ -80,11 +81,11 @@ func NewBuffer(capacity int64, maxSize int) (*Buffer, error) {
 		return nil, err
 	}
 
-	active, err := p.Get()
+	active, err := pool.Get()
 	if err != nil {
 		return nil, err
 	}
-	passive, err := p.Get()
+	passive, err := pool.Get()
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +97,7 @@ func NewBuffer(capacity int64, maxSize int) (*Buffer, error) {
 		sig:     make(chan struct{}),
 		readq:   make(chan string, capacity*bufferMultiplier),
 		lock:    sync.Mutex{},
+		pool:    pool,
 	}
 	b.counter.Store(0)
 
@@ -112,19 +114,19 @@ func (b *Buffer) Write(p string) error {
 	}
 
 	b.lock.Lock()
+	defer b.lock.Unlock()
 	pSize := len(p)
 	if b.size+uint64(pSize) > SizeThreshold || float64(len(b.active)) >= float64(cap(b.active))*PercentThreshold {
 		// 执行切换逻辑
 		b.sw()
 	}
-	b.lock.Unlock()
 
 	select {
+	case <-b.sig:
+		return ex.ErrBufferClose
 	case b.active <- p:
 		b.size += uint64(pSize)
 		return nil
-	case <-b.sig:
-		return ex.ErrBufferClose
 	default:
 		return ex.ErrBufferFull
 	}
@@ -140,8 +142,6 @@ func (b *Buffer) Register() <-chan string {
 // sw 执行切换逻辑
 func (b *Buffer) sw() {
 	active := b.active
-	close(active)
-
 	b.counter.Add(1)
 	go b.asyncReader(active)
 
@@ -152,10 +152,11 @@ func (b *Buffer) sw() {
 		default:
 			newBuf, err := b.pool.Get()
 			if err != nil {
-				continue
+				return
 			}
 			b.active, b.passive = b.passive, newBuf
 			b.size = 0
+			return
 		}
 	}
 }
@@ -176,18 +177,27 @@ func (b *Buffer) asyncWork() {
 	}
 }
 
-// asyncReader 异步读取器，后台异步的把缓冲通道中的日志数据读取出来，并写入大readq中
+// asyncReader 异步读取器，后台异步的把缓冲通道中的日志数据读取出来，并写入到readq中
 func (b *Buffer) asyncReader(ch chan string) {
 	defer func() {
 		b.counter.Add(-1)
+		b.pool.Put(ch)
 	}()
 
-	for data := range ch {
+	// 读取缓冲区中所有的数据，直到为空退出
+	for len(ch) > 0 {
 		select {
-		case b.readq <- data:
-		default:
+		case <-b.sig:
+			return
+		case data := <-ch:
+			select {
+			case <-b.sig:
+				return
+			case b.readq <- data:
+			}
 		}
 	}
+	fmt.Println("读取完成，退出")
 }
 
 func (b *Buffer) Close() {
@@ -195,13 +205,13 @@ func (b *Buffer) Close() {
 		close(b.sig)
 		close(b.active)
 		close(b.passive)
-
+		
+		b.counter.Add(1)
+		b.asyncReader(b.active)
 		const sleepInterval = time.Millisecond * 5
 		for b.counter.Load() > 0 {
 			time.Sleep(sleepInterval)
 		}
-		b.counter.Add(1)
-		b.asyncReader(b.active)
 		close(b.readq)
 
 		b.pool.Put(b.active)

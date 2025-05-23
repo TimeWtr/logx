@@ -67,24 +67,19 @@ func NewLog(filePath string, opts ...Options) (Logger, error) {
 	}
 
 	cfg := &Config{
-		filePath:         filePath,
-		filename:         DefaultFilename,
-		level:            core.InfoLevel,
-		location:         DefaultLocation,
-		enableLine:       true,
-		callSkip:         DefaultErrCoreSkip,
-		threshold:        DefaultLogSize,
-		period:           DefaultPeriod,
-		enableCompress:   false,
-		compressionLevel: DefaultCompression,
+		filePath:       filePath,
+		filename:       DefaultFilename,
+		level:          core.InfoLevel,
+		location:       DefaultLocation,
+		enableLine:     true,
+		callSkip:       DefaultErrCoreSkip,
+		threshold:      DefaultLogSize,
+		period:         DefaultPeriod,
+		enableCompress: false,
 	}
 
 	for _, opt := range opts {
 		opt(cfg)
-	}
-
-	if cfg.enableCompress && cfg.compressionLevel.valid() {
-		return nil, fmt.Errorf("invalid compression level: %d", cfg.compressionLevel)
 	}
 
 	l := &Log{
